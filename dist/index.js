@@ -9,9 +9,9 @@ import { ChatOpenAI } from "@langchain/openai";
 import { z } from "zod";
 import fs from "node:fs";
 import { Client } from "@xmtp/node-sdk";
-import solc from "solc";
 import { ethers } from "ethers";
 import QRCode from "qrcode";
+import contractArtifact from "./dist/CrowdFund.json" assert { type: "json" };
 const { WALLET_KEY, ENCRYPTION_KEY, XMTP_ENV, CDP_API_KEY_NAME, CDP_API_KEY_PRIVATE_KEY, NETWORK_ID, OPENROUTER_API_KEY, } = validateEnvironment([
     "WALLET_KEY",
     "ENCRYPTION_KEY",
@@ -29,6 +29,9 @@ const memoryStore = {};
 const agentStore = {};
 // Ensure storage directories exist
 function ensureLocalStorage() {
+    // NOTE: Using fs for storage is not suitable for Render's ephemeral filesystem.
+    // Data written here will be lost on service restarts.
+    // Consider using Render Disks or a managed database for persistent storage.
     if (!fs.existsSync(XMTP_STORAGE_DIR)) {
         fs.mkdirSync(XMTP_STORAGE_DIR, { recursive: true });
     }
@@ -38,6 +41,7 @@ function ensureLocalStorage() {
 }
 // Wallet storage functions
 function saveWalletData(userId, walletData) {
+    // NOTE: Using fs for storage is not suitable for Render's ephemeral filesystem.
     const localFilePath = `${WALLET_STORAGE_DIR}/${userId}.json`;
     try {
         if (!fs.existsSync(localFilePath)) {
@@ -77,17 +81,9 @@ async function initializeXmtpClient() {
     await client.conversations.sync();
     return client;
 }
-// --- Pre-compile the smart contract ---
-const contractSource = fs.readFileSync("CrowdFund.sol", "utf8");
-const compilerInput = {
-    language: "Solidity",
-    sources: { "CrowdFund.sol": { content: contractSource } },
-    settings: { outputSelection: { "*": { "*": ["*"] } } },
-};
-const compiled = JSON.parse(solc.compile(JSON.stringify(compilerInput)));
-const contractArtifact = compiled.contracts["CrowdFund.sol"]["CrowdFund"];
+// --- Contract Artifacts ---
 const contractAbi = contractArtifact.abi;
-const contractBytecode = contractArtifact.evm.bytecode.object;
+const contractBytecode = contractArtifact.bytecode;
 // --- End pre-compilation ---
 // Initialize CDP agent
 async function initializeAgent(userId, client) {

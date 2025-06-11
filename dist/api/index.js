@@ -36,6 +36,9 @@ app.post('/api/chat', async (req, res) => {
         res.status(500).json({ error: 'Failed to process message' });
     }
 });
+app.get('/api/chat', (_req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
 app.listen(port, () => {
     console.log(`API server listening on port ${port}`);
     initialize();

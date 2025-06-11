@@ -43,6 +43,10 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+app.get('/api/chat', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 app.listen(port, () => {
   console.log(`API server listening on port ${port}`);
   initialize();
