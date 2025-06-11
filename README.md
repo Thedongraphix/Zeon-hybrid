@@ -1,2 +1,2 @@
 # Zeon-hybrid
-yes zeon gg
+yes zeon gg Onchain Agent
