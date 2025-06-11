@@ -1,0 +1,43 @@
+{
+  "name": "zeon-hybrid-api",
+  "version": "1.0.0",
+  "description": "XMTP Agent Backend API",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/api/index.js",
+    "dev": "tsx --watch api/index.ts"
+  },
+  "dependencies": {
+    "@coinbase/agentkit": "^0.6.2",
+    "@coinbase/agentkit-langchain": "^0.3.0",
+    "@langchain/core": "^0.3.19",
+    "@langchain/langgraph": "^0.2.21",
+    "@langchain/openai": "^0.3.14",
+    "@solana/web3.js": "^1.98.2",
+    "@xmtp/node-sdk": "^2.1.0",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "ethers": "^6.12.0",
+    "express": "^4.19.2",
+    "qrcode": "^1.5.3",
+    "solc": "^0.8.20",
+    "ts-node": "^10.9.2",
+    "uint8arrays": "^5.0.2",
+    "viem": "^2.7.9",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/body-parser": "^1.19.5",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.15.30",
+    "@types/qrcode": "^1.5.5",
+    "tsx": "*",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

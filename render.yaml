@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: zeon-hybrid-api
+    env: node
+    plan: free
+    buildCommand: yarn install && yarn build
+    startCommand: yarn start
+    healthCheckPath: /api/chat
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: WALLET_KEY
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: XMTP_ENV
+        value: dev
