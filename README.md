@@ -1,2 +1,2 @@
 # Zeon-hybrid
-yes zeon
+yes zeon gg
