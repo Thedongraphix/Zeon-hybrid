@@ -130,8 +130,10 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
       modelName: "gpt-3.5-turbo",
       temperature: 0.7,
       maxRetries: 3,
-      baseURL: "https://openrouter.ai/api/v1",
       apiKey: OPENROUTER_API_KEY,
+      configuration: {
+        baseURL: "https://openrouter.ai/api/v1",
+      },
     });
 
     const storedWalletData = getWalletData(userId);
