@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import {
   AgentKit,
   cdpApiActionProvider,
@@ -12,19 +13,26 @@ import {
   getEncryptionKeyFromHex,
   logAgentDetails,
   validateEnvironment,
-} from "./helpers/client.js";
+} from "@helpers/client";
 
-import { HumanMessage } from "@langchain/core/messages";
-import { DynamicStructuredTool } from "@langchain/core/tools";
+import {
+  AIMessage,
+  HumanMessage,
+  BaseMessage,
+} from "@langchain/core/messages";
+import { DynamicTool } from "@langchain/core/tools";
 import { MemorySaver } from "@langchain/langgraph";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
-import { z } from "zod";
-import fs from "node:fs";
-import { Client, XmtpEnv } from "@xmtp/node-sdk";
+import {
+  Client,
+  type Conversation,
+  type DecodedMessage,
+  type XmtpEnv,
+} from "@xmtp/node-sdk";
+import solc from "solc";
 import { ethers } from "ethers";
 import QRCode from "qrcode";
-import contractArtifact from "./dist/CrowdFund.json" with { type: "json" };
 
 const {
   WALLET_KEY,
@@ -62,9 +70,6 @@ type Agent = ReturnType<typeof createReactAgent>;
 
 // Ensure storage directories exist
 function ensureLocalStorage() {
-  // NOTE: Using fs for storage is not suitable for Render's ephemeral filesystem.
-  // Data written here will be lost on service restarts.
-  // Consider using Render Disks or a managed database for persistent storage.
   if (!fs.existsSync(XMTP_STORAGE_DIR)) {
     fs.mkdirSync(XMTP_STORAGE_DIR, { recursive: true });
   }
@@ -75,7 +80,6 @@ function ensureLocalStorage() {
 
 // Wallet storage functions
 function saveWalletData(userId: string, walletData: string) {
-  // NOTE: Using fs for storage is not suitable for Render's ephemeral filesystem.
   const localFilePath = `${WALLET_STORAGE_DIR}/${userId}.json`;
   try {
     if (!fs.existsSync(localFilePath)) {
@@ -118,21 +122,34 @@ async function initializeXmtpClient() {
   return client;
 }
 
-// --- Contract Artifacts ---
+// --- Pre-compile the smart contract ---
+const contractSource = fs.readFileSync("CrowdFund.sol", "utf8");
+const compilerInput = {
+  language: "Solidity",
+  sources: { "CrowdFund.sol": { content: contractSource } },
+  settings: { outputSelection: { "*": { "*": ["*"] } } },
+};
+
+const compiled = JSON.parse(solc.compile(JSON.stringify(compilerInput)));
+const contractArtifact = compiled.contracts["CrowdFund.sol"]["CrowdFund"];
 const contractAbi = contractArtifact.abi;
-const contractBytecode = contractArtifact.bytecode;
+const contractBytecode = contractArtifact.evm.bytecode.object;
 // --- End pre-compilation ---
 
 // Initialize CDP agent
 async function initializeAgent(userId: string, client: Client): Promise<{ agent: Agent; config: AgentConfig }> {
   try {
     const llm = new ChatOpenAI({
-      modelName: "gpt-3.5-turbo",
+      modelName: "openai/gpt-4o",
+      openAIApiKey: OPENROUTER_API_KEY,
       temperature: 0.7,
       maxRetries: 3,
-      apiKey: OPENROUTER_API_KEY,
       configuration: {
         baseURL: "https://openrouter.ai/api/v1",
+        defaultHeaders: {
+          "HTTP-Referer": "http://localhost:3000",
+          "X-Title": "XMTP Coinbase AgentKit",
+        },
       },
     });
 
@@ -150,6 +167,7 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
     };
 
     const walletProvider = await CdpWalletProvider.configureWithWallet(config);
+
     const agentkit = await AgentKit.from({
       walletProvider,
       actionProviders: [
@@ -168,16 +186,12 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
 
     const tools = await getLangChainTools(agentkit);
     
-    const qrCodeTool = new DynamicStructuredTool({
+    const qrCodeTool = new DynamicTool({
       name: "generate_contribution_qr_code",
-      description: "Generates a QR code as an SVG string for a contribution",
-      schema: z.object({
-        contractAddress: z.string(),
-        amountInEth: z.string()
-      }),
+      description: `Generates a QR code as an SVG string for a contribution. Input should be a JSON string with "contractAddress" and "amountInEth".`,
       func: async (input) => {
         try {
-          const { contractAddress, amountInEth } = input;
+          const { contractAddress, amountInEth } = JSON.parse(input);
           const valueInWei = ethers.parseEther(amountInEth).toString();
           const data = `ethereum:${contractAddress}?value=${valueInWei}`;
           // Generate as an SVG string for crisp rendering
@@ -193,17 +207,12 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
       },
     });
 
-    const deployFundraiserTool = new DynamicStructuredTool({
+    const deployFundraiserTool = new DynamicTool({
       name: "deploy_fundraiser_contract",
-      description: "Deploys a fundraising contract",
-      schema: z.object({
-        beneficiaryAddress: z.string(),
-        goalAmount: z.string(),
-        durationInSeconds: z.string()
-      }),
+      description: `Deploys a fundraising contract. Input should be a JSON string with "beneficiaryAddress", "goalAmount", and "durationInSeconds".`,
       func: async (input) => {
         try {
-          const { beneficiaryAddress, goalAmount, durationInSeconds } = input;
+          const { beneficiaryAddress, goalAmount, durationInSeconds } = JSON.parse(input);
 
           const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
           const wallet = new ethers.Wallet(WALLET_KEY, provider);
@@ -218,10 +227,10 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
           await deployedContract.waitForDeployment();
           const contractAddress = await deployedContract.getAddress();
 
-          return {
+          return JSON.stringify({
             contractAddress: contractAddress,
             transactionHash: tx.hash,
-          };
+          });
         } catch (e: any) {
           console.error("Error deploying contract:", e);
           return `Error deploying contract: ${e.message}`;
@@ -229,15 +238,12 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
       },
     });
 
-    const getFundraiserContributorsTool = new DynamicStructuredTool({
+    const getFundraiserContributorsTool = new DynamicTool({
       name: "get_fundraiser_contributors",
-      description: "Get the list of contributors for a fundraiser",
-      schema: z.object({
-        contractAddress: z.string()
-      }),
+      description: "Use this to get the list of contributors for a fundraiser. Provide the 'contractAddress' of the fundraiser. It will return a list of contributor addresses and their ENS names.",
       func: async (input) => {
         try {
-          const { contractAddress } = input;
+          const { contractAddress } = JSON.parse(input);
           const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
           
           const fundraiserContract = new ethers.Contract(contractAddress, contractAbi, provider);
@@ -270,15 +276,12 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
       },
     });
     
-    const checkFundraiserStatusTool = new DynamicStructuredTool({
+    const checkFundraiserStatusTool = new DynamicTool({
       name: "check_fundraiser_status",
-      description: "Checks if a fundraiser is still active",
-      schema: z.object({
-        contractAddress: z.string()
-      }),
+      description: "Checks if a fundraiser is still active and can receive contributions. Input should be a JSON string with 'contractAddress'.",
       func: async (input) => {
         try {
-          const { contractAddress } = input;
+          const { contractAddress } = JSON.parse(input);
           const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
           
           const fundraiserContract = new ethers.Contract(contractAddress, contractAbi, provider);
@@ -332,36 +335,114 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
       };
     }
 
-    memoryStore[userId] = new MemorySaver();
+    if (!memoryStore[userId]) {
+      memoryStore[userId] = new MemorySaver();
+    }
 
     const agentConfig: AgentConfig = {
       configurable: { thread_id: userId },
     };
 
-    const agent = await createReactAgent({
+    const agent = createReactAgent({
       llm,
-      tools
+      tools: tools as any,
+      checkpointSaver: memoryStore[userId],
+      messageModifier: `You are a helpful crypto agent for Base Sepolia testnet that can:
+
+🚀 CORE FEATURES:
+- Send/receive ETH and ERC-20 tokens
+- Check wallet balances and transaction history  
+- Swap tokens using built-in DEX functionality
+- Deploy smart contracts (ERC-20 tokens, NFTs)
+- Manage group contributions and bill splitting
+- Generate wallet addresses for new users
+- Create and deploy fundraising campaigns
+- Generate QR codes for contributions
+- Check who has contributed to a fundraiser
+
+💬 CONVERSATION STYLE:
+- Be conversational and friendly
+- Use emojis to make responses engaging  
+- Ask clarifying questions when amounts/addresses aren't specified
+- Provide transaction hashes and links for verification
+- After every transaction, you will provide a link to view it on the Base Sepolia block explorer.
+- Suggest reasonable amounts for testnet demos
+- When you generate a QR code, you MUST output the raw <svg> string directly in your response. Do NOT wrap it in markdown code blocks or any other formatting.
+
+🛡️ SAFETY & BEST PRACTICES:
+- Always confirm transaction details before executing
+- Warn about network fees
+- Use Base Sepolia testnet only
+- Double-check addresses before sending funds
+- When creating a new fundraiser, always use a default duration of 1 hour (3600 seconds) unless the user specifies a different duration.
+- Before generating a QR code for a fundraiser, you MUST first use the 'check_fundraiser_status' tool to ensure it is still active.
+
+⚠️ TOOL USAGE RULES:
+- When calling a tool to send or swap tokens, the 'amount' parameter must be a string containing ONLY the numerical value (e.g., "0.01"). Do NOT include the token symbol like "ETH" or "USDC" in the amount.
+- Before checking a token balance, verify that you are using the correct contract address for the token.
+
+📝 EXAMPLE COMMANDS:
+- "What's my wallet balance?"
+- "Send 0.01 ETH to vitalik.eth"  
+- "Swap 0.1 ETH for USDC"
+- "Deploy an ERC-20 token called 'HackToken' with symbol 'HACK'"
+- "Create a contribution pool for pizza money (0.05 ETH)"
+- "Split a 0.02 ETH bill among 4 people"
+- "Deploy a fundraiser for a new community project"
+- "Generate a QR code for a 0.1 ETH contribution to my fundraiser"
+- "Who has contributed to the fundraiser at 0x...?"
+- "Is the fundraiser at 0x... still active?"
+
+🎯 FOR GROUP ACTIVITIES:
+- Help users create shared wallets for group expenses
+- Facilitate bill splitting with automatic calculations
+- Enable group token swaps and investments
+- Track contributions and expenses transparently
+
+❗ IMPORTANT: Before answering, always check if you have a tool that can help with the user's request.
+You have a tool named 'get_fundraiser_contributors' that you MUST use when asked who has contributed to a fundraiser.
+
+Ready to help with your crypto operations on Base! 🎉`,
     });
+
+    agentStore[userId] = agent;
+
+    const exportedWallet = await walletProvider.exportWallet();
+    const walletDataJson = JSON.stringify(exportedWallet);
+    saveWalletData(userId, walletDataJson);
 
     return { agent, config: agentConfig };
   } catch (error: any) {
-    console.error("Failed to initialize agent:", error);
-    throw error;
+    console.error("Error initializing agent:", error);
+    throw new Error(`Failed to initialize agent: ${error.message}`);
   }
 }
 
 // Process messages with better error handling
-async function processMessage(agent: Agent, config: AgentConfig, message: string): Promise<string> {
+async function processMessage(
+  agent: Agent,
+  config: AgentConfig,
+  message: string,
+  history: { role: "user" | "assistant"; content: string }[] = [],
+): Promise<string> {
   try {
-    console.log(`🤔 Processing: "${message}"`);
-    const response = await agent.invoke(
-      { messages: [new HumanMessage(message)] },
-      config,
+    console.log(`🤔 Processing: "${message}" with history of length ${history.length}`);
+
+    const messages: BaseMessage[] = history.map((msg) =>
+      msg.role === "user"
+        ? new HumanMessage(msg.content)
+        : new AIMessage(msg.content),
     );
-    
-    const responseContent = response.messages[response.messages.length - 1].content as string;
+    messages.push(new HumanMessage(message));
+
+    const response = (await agent.invoke({ messages }, config)) as {
+      messages: BaseMessage[];
+    };
+
+    const responseContent =
+      response.messages[response.messages.length - 1].content as string;
     console.log(`🤖 Response generated: ${responseContent.slice(0, 100)}...`);
-    
+
     return responseContent;
   } catch (error: any) {
     console.error("Error processing message:", error);
@@ -379,7 +460,12 @@ async function processMessage(agent: Agent, config: AgentConfig, message: string
 }
 
 // Handle incoming messages as a request/response function
-async function handleMessage(messageContent: string, senderAddress: string, client: Client): Promise<string> {
+async function handleMessage(
+  messageContent: string,
+  senderAddress: string,
+  client: Client,
+  history: { role: "user" | "assistant"; content: string }[] = [],
+): Promise<string> {
   let conversation: any = null;
   try {
     const botAddress = client.inboxId.toLowerCase();
@@ -407,10 +493,15 @@ async function handleMessage(messageContent: string, senderAddress: string, clie
     }
 
     // Process the message
-    const response = await processMessage(agent, config, messageContent);
+    const response = await processMessage(
+      agent,
+      config,
+      messageContent,
+      history,
+    );
     
     console.log(`🤖 Sending response to ${senderAddress}`);
-    
+
     return response;
 
   } catch (error) {
@@ -448,7 +539,11 @@ async function startAgent() {
     // Return the client and handler for the API server
     return {
       client,
-      handleMessage: (message: string, userId: string) => handleMessage(message, userId, client),
+      handleMessage: (
+        message: string,
+        userId: string,
+        history: { role: "user" | "assistant"; content: string }[] = [],
+      ) => handleMessage(message, userId, client, history),
     };
 
   } catch (error) {
@@ -465,4 +560,4 @@ async function startAgent() {
 //   });
 // }
 
-export { startAgent, handleMessage };
+export { startAgent, handleMessage }; 
