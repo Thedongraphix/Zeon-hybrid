@@ -1,12 +1,4 @@
-import {
-  AgentKit,
-  cdpApiActionProvider,
-  cdpWalletActionProvider,
-  CdpWalletProvider,
-  erc20ActionProvider,
-  walletActionProvider,
-} from "@coinbase/agentkit";
-import { getLangChainTools } from "@coinbase/agentkit-langchain";
+// Removed CDP imports as we're using direct ethers.js integration
 import {
   createSigner,
   getEncryptionKeyFromHex,
@@ -34,16 +26,12 @@ const {
   WALLET_KEY,
   ENCRYPTION_KEY,
   XMTP_ENV,
-  CDP_API_KEY_NAME,
-  CDP_API_KEY_PRIVATE_KEY,
   NETWORK_ID,
   OPENROUTER_API_KEY,
 } = validateEnvironment([
   "WALLET_KEY",
   "ENCRYPTION_KEY",
   "XMTP_ENV",
-  "CDP_API_KEY_NAME",
-  "CDP_API_KEY_PRIVATE_KEY",
   "NETWORK_ID",
   "OPENROUTER_API_KEY",
 ]);
@@ -137,34 +125,7 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
       apiKey: OPENROUTER_API_KEY,
     });
 
-    const storedWalletData = getWalletData(userId);
-    console.log(`Wallet data for ${userId}: ${storedWalletData ? "Found" : "Not found"}`);
-
-    const config = {
-      networkId: NETWORK_ID || "base-sepolia",
-      analytics: {
-        disabled: true,
-      },
-    };
-
-    const walletProvider = await CdpWalletProvider.configureWithWallet(config);
-    const agentkit = await AgentKit.from({
-      walletProvider,
-      actionProviders: [
-        walletActionProvider(),
-        erc20ActionProvider(),
-        cdpApiActionProvider({
-          apiKeyName: CDP_API_KEY_NAME,
-          apiKeyPrivateKey: CDP_API_KEY_PRIVATE_KEY.replace(/\\n/g, "\n"),
-        }),
-        cdpWalletActionProvider({
-          apiKeyName: CDP_API_KEY_NAME,
-          apiKeyPrivateKey: CDP_API_KEY_PRIVATE_KEY.replace(/\\n/g, "\n"),
-        }),
-      ],
-    });
-
-    const tools = await getLangChainTools(agentkit);
+    const tools: any[] = [];
     
     const qrCodeTool = new DynamicStructuredTool({
       name: "generate_contribution_qr_code",
