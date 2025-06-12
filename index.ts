@@ -135,18 +135,12 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
       temperature: 0.7,
       maxRetries: 3,
       apiKey: OPENROUTER_API_KEY,
-      configuration: {
-        baseURL: "https://openrouter.ai/api/v1",
-      },
     });
 
     const storedWalletData = getWalletData(userId);
     console.log(`Wallet data for ${userId}: ${storedWalletData ? "Found" : "Not found"}`);
 
     const config = {
-      apiKeyName: CDP_API_KEY_NAME,
-      apiKeyPrivateKey: CDP_API_KEY_PRIVATE_KEY.replace(/\\n/g, "\n"),
-      cdpWalletData: storedWalletData || undefined,
       networkId: NETWORK_ID || "base-sepolia",
       analytics: {
         disabled: true,
@@ -296,7 +290,29 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
       },
     });
 
-    tools.push(deployFundraiserTool, qrCodeTool, getFundraiserContributorsTool, checkFundraiserStatusTool);
+    const checkWalletBalanceTool = new DynamicStructuredTool({
+      name: "check_wallet_balance",
+      description: "Checks the balance of an Ethereum wallet address",
+      schema: z.object({
+        address: z.string()
+      }),
+      func: async (input) => {
+        try {
+          const { address } = input;
+          const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
+          
+          const balance = await provider.getBalance(address);
+          const balanceInEth = ethers.formatEther(balance);
+          
+          return `Your wallet balance is ${balanceInEth} ETH on Base Sepolia network.`;
+        } catch (e: any) {
+          console.error("Error checking wallet balance:", e);
+          return `Error checking wallet balance: ${e.message}`;
+        }
+      },
+    });
+
+    tools.push(deployFundraiserTool, qrCodeTool, getFundraiserContributorsTool, checkFundraiserStatusTool, checkWalletBalanceTool);
 
     for (const tool of tools) {
       const originalInvoke = tool.invoke;
