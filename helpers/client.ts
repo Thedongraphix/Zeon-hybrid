@@ -3,9 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { IdentifierKind, type Client, type Signer } from "@xmtp/node-sdk";
 import { fromString, toString } from "uint8arrays";
-import { createWalletClient, http, toBytes } from "viem";
+import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { sepolia } from "viem/chains";
+import { base } from "viem/chains";
+
+type Hex = `0x${string}`;
+type SignMessageReturnType = Hex | Uint8Array;
 
 interface User {
   key: `0x${string}`;
@@ -20,7 +23,7 @@ export const createUser = (key: string): User => {
     account,
     wallet: createWalletClient({
       account,
-      chain: sepolia,
+      chain: base,
       transport: http(),
     }),
   };
@@ -174,3 +177,18 @@ export function validateEnvironment(vars: string[]): Record<string, string> {
     return acc;
   }, {});
 }
+
+// Fix the toBytes function
+function toBytes(signature: string | Uint8Array): Uint8Array {
+  if (typeof signature === 'string') {
+    // Remove '0x' prefix if present
+    const hex = signature.startsWith('0x') ? signature.slice(2) : signature;
+    return fromString(hex, 'hex');
+  }
+  // If it's already a Uint8Array, return it
+  if (signature instanceof Uint8Array) {
+    return signature;
+  }
+  throw new Error('Invalid signature format');
+}
+

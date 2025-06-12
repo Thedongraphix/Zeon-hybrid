@@ -4,6 +4,9 @@ import cors from 'cors';
 import { startAgent } from '../index.js';
 const app = express();
 const port = process.env.PORT || 3001;
+app.get('/', (_req, res) => {
+    res.send('Zeon Hybrid API is live!');
+});
 app.use(cors());
 app.use(bodyParser.json());
 let agentHandler;
@@ -20,15 +23,17 @@ async function initialize() {
     }
 }
 app.post('/api/chat', async (req, res) => {
-    const { message, userId } = req.body;
-    if (!message || !userId) {
-        return res.status(400).json({ error: 'Message and userId are required' });
+    const { message, history, walletAddress } = req.body;
+    if (!message || !walletAddress) {
+        return res
+            .status(400)
+            .json({ error: 'Message and walletAddress are required' });
     }
     if (!agentHandler) {
         return res.status(503).json({ error: 'Agent is not initialized yet.' });
     }
     try {
-        const agentResponse = await agentHandler(message, userId);
+        const agentResponse = await agentHandler(message, walletAddress, history || []);
         res.json({ response: agentResponse });
     }
     catch (error) {

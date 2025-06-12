@@ -21,14 +21,15 @@
     "express": "^4.19.2",
     "qrcode": "^1.5.3",
     "ts-node": "^10.9.2",
-    "uint8arrays": "^5.0.2",
+    "uint8arrays": "^5.1.0",
+    "viem": "^2.31.1",
     "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/body-parser": "^1.19.5",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
-    "@types/node": "^22.15.30",
+    "@types/node": "^24.0.1",
     "@types/qrcode": "^1.5.5",
     "solc": "^0.8.20",
     "tsx": "*",
@@ -36,5 +37,6 @@
   },
   "engines": {
     "node": ">=20"
-  }
+  },
+  "license": "MIT"
 }

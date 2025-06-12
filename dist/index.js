@@ -1,7 +1,6 @@
-import { AgentKit, cdpApiActionProvider, cdpWalletActionProvider, CdpWalletProvider, erc20ActionProvider, walletActionProvider, } from "@coinbase/agentkit";
-import { getLangChainTools } from "@coinbase/agentkit-langchain";
+// Removed CDP imports as we're using direct ethers.js integration
 import { createSigner, getEncryptionKeyFromHex, logAgentDetails, validateEnvironment, } from "./helpers/client.js";
-import { HumanMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, } from "@langchain/core/messages";
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { MemorySaver } from "@langchain/langgraph";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
@@ -11,13 +10,11 @@ import fs from "node:fs";
 import { Client } from "@xmtp/node-sdk";
 import { ethers } from "ethers";
 import QRCode from "qrcode";
-import contractArtifact from "./dist/CrowdFund.json" assert { type: "json" };
-const { WALLET_KEY, ENCRYPTION_KEY, XMTP_ENV, CDP_API_KEY_NAME, CDP_API_KEY_PRIVATE_KEY, NETWORK_ID, OPENROUTER_API_KEY, } = validateEnvironment([
+import contractArtifact from "./dist/CrowdFund.json" with { type: "json" };
+const { WALLET_KEY, ENCRYPTION_KEY, XMTP_ENV, NETWORK_ID, OPENROUTER_API_KEY, } = validateEnvironment([
     "WALLET_KEY",
     "ENCRYPTION_KEY",
     "XMTP_ENV",
-    "CDP_API_KEY_NAME",
-    "CDP_API_KEY_PRIVATE_KEY",
     "NETWORK_ID",
     "OPENROUTER_API_KEY",
 ]);
@@ -92,35 +89,9 @@ async function initializeAgent(userId, client) {
             modelName: "gpt-3.5-turbo",
             temperature: 0.7,
             maxRetries: 3,
+            apiKey: OPENROUTER_API_KEY,
         });
-        const storedWalletData = getWalletData(userId);
-        console.log(`Wallet data for ${userId}: ${storedWalletData ? "Found" : "Not found"}`);
-        const config = {
-            apiKeyName: CDP_API_KEY_NAME,
-            apiKeyPrivateKey: CDP_API_KEY_PRIVATE_KEY.replace(/\\n/g, "\n"),
-            cdpWalletData: storedWalletData || undefined,
-            networkId: NETWORK_ID || "base-sepolia",
-            analytics: {
-                disabled: true,
-            },
-        };
-        const walletProvider = await CdpWalletProvider.configureWithWallet(config);
-        const agentkit = await AgentKit.from({
-            walletProvider,
-            actionProviders: [
-                walletActionProvider(),
-                erc20ActionProvider(),
-                cdpApiActionProvider({
-                    apiKeyName: CDP_API_KEY_NAME,
-                    apiKeyPrivateKey: CDP_API_KEY_PRIVATE_KEY.replace(/\\n/g, "\n"),
-                }),
-                cdpWalletActionProvider({
-                    apiKeyName: CDP_API_KEY_NAME,
-                    apiKeyPrivateKey: CDP_API_KEY_PRIVATE_KEY.replace(/\\n/g, "\n"),
-                }),
-            ],
-        });
-        const tools = await getLangChainTools(agentkit);
+        const tools = [];
         const qrCodeTool = new DynamicStructuredTool({
             name: "generate_contribution_qr_code",
             description: "Generates a QR code as an SVG string for a contribution",
@@ -234,7 +205,27 @@ async function initializeAgent(userId, client) {
                 }
             },
         });
-        tools.push(deployFundraiserTool, qrCodeTool, getFundraiserContributorsTool, checkFundraiserStatusTool);
+        const checkWalletBalanceTool = new DynamicStructuredTool({
+            name: "check_wallet_balance",
+            description: "Checks the balance of an Ethereum wallet address",
+            schema: z.object({
+                address: z.string()
+            }),
+            func: async (input) => {
+                try {
+                    const { address } = input;
+                    const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
+                    const balance = await provider.getBalance(address);
+                    const balanceInEth = ethers.formatEther(balance);
+                    return `Your wallet balance is ${balanceInEth} ETH on Base Sepolia network.`;
+                }
+                catch (e) {
+                    console.error("Error checking wallet balance:", e);
+                    return `Error checking wallet balance: ${e.message}`;
+                }
+            },
+        });
+        tools.push(deployFundraiserTool, qrCodeTool, getFundraiserContributorsTool, checkFundraiserStatusTool, checkWalletBalanceTool);
         for (const tool of tools) {
             const originalInvoke = tool.invoke;
             tool.invoke = async (input) => {
@@ -286,30 +277,34 @@ async function initializeAgent(userId, client) {
     }
 }
 // Process messages with better error handling
-async function processMessage(agent, config, message) {
+async function processMessage(agent, config, message, history = []) {
     try {
-        console.log(`🤔 Processing: "${message}"`);
-        const response = await agent.invoke({ messages: [new HumanMessage(message)] }, config);
+        console.log(`🤔 Processing: "${message}" with history of length ${history.length}`);
+        const messages = history.map((msg) => msg.role === "user"
+            ? new HumanMessage(msg.content)
+            : new AIMessage(msg.content));
+        messages.push(new HumanMessage(message));
+        const response = (await agent.invoke({ messages }, config));
         const responseContent = response.messages[response.messages.length - 1].content;
         console.log(`🤖 Response generated: ${responseContent.slice(0, 100)}...`);
         return responseContent;
     }
     catch (error) {
         console.error("Error processing message:", error);
-        if (error.message.includes('insufficient funds')) {
+        if (error.message.includes("insufficient funds")) {
             return `❌ Insufficient funds! Please make sure you have enough ETH in your wallet for this transaction. You can get testnet ETH from the Base Sepolia faucet.`;
         }
-        else if (error.message.includes('invalid address')) {
+        else if (error.message.includes("invalid address")) {
             return `❌ Invalid address format! Please provide a valid Ethereum address (starting with 0x) or ENS name.`;
         }
-        else if (error.message.includes('network')) {
+        else if (error.message.includes("network")) {
             return `❌ Network error! Please check your connection and try again.`;
         }
         return `❌ Sorry, I encountered an error: ${error.message}. Please try again or rephrase your request.`;
     }
 }
 // Handle incoming messages as a request/response function
-async function handleMessage(messageContent, senderAddress, client) {
+async function handleMessage(messageContent, senderAddress, client, history = []) {
     let conversation = null;
     try {
         const botAddress = client.inboxId.toLowerCase();
@@ -333,7 +328,7 @@ async function handleMessage(messageContent, senderAddress, client) {
             config = { configurable: { thread_id: senderAddress } };
         }
         // Process the message
-        const response = await processMessage(agent, config, messageContent);
+        const response = await processMessage(agent, config, messageContent, history);
         console.log(`🤖 Sending response to ${senderAddress}`);
         return response;
     }
@@ -367,7 +362,7 @@ async function startAgent() {
         // Return the client and handler for the API server
         return {
             client,
-            handleMessage: (message, userId) => handleMessage(message, userId, client),
+            handleMessage: (message, userId, history = []) => handleMessage(message, userId, client, history),
         };
     }
     catch (error) {

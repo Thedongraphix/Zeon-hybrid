@@ -2,9 +2,9 @@ import { getRandomValues } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fromString, toString } from "uint8arrays";
-import { createWalletClient, http, toBytes } from "viem";
+import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { sepolia } from "viem/chains";
+import { base } from "viem/chains";
 export const createUser = (key) => {
     const account = privateKeyToAccount(key);
     return {
@@ -12,7 +12,7 @@ export const createUser = (key) => {
         account,
         wallet: createWalletClient({
             account,
-            chain: sepolia,
+            chain: base,
             transport: http(),
         }),
     };
@@ -147,4 +147,17 @@ export function validateEnvironment(vars) {
         acc[key] = process.env[key];
         return acc;
     }, {});
+}
+// Fix the toBytes function
+function toBytes(signature) {
+    if (typeof signature === 'string') {
+        // Remove '0x' prefix if present
+        const hex = signature.startsWith('0x') ? signature.slice(2) : signature;
+        return fromString(hex, 'hex');
+    }
+    // If it's already a Uint8Array, return it
+    if (signature instanceof Uint8Array) {
+        return signature;
+    }
+    throw new Error('Invalid signature format');
 }

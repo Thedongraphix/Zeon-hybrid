@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
@@ -12,15 +12,19 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "@helpers/client": ["./helpers/client.ts"]
+      "@helpers/*": ["./helpers/*"]
     },
-    "typeRoots": ["./node_modules/@types"],
-    "noEmit": false
+    "typeRoots": [
+      "./node_modules/@types",
+      "./types"
+    ],
+    "noEmit": false,
+    "types": ["node"]
   },
   "ts-node": {
     "esm": true,
     "experimentalSpecifierResolution": "node"
   },
   "include": ["**/*.ts"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "dist"]
 }
