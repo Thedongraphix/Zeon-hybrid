@@ -1,10 +1,15 @@
 import express from 'express';
 import bodyParser from 'body-parser';
+import type { CorsOptions } from 'cors';
 import cors from 'cors';
 import { startAgent } from '../index.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
+
+app.get('/', (_req, res) => {
+  res.send('Zeon Hybrid API is live!');
+});
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -40,7 +45,11 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    const agentResponse = await agentHandler(message, walletAddress, history || []);
+    const agentResponse = await agentHandler(
+      message,
+      walletAddress,
+      history || [],
+    );
     res.json({ response: agentResponse });
   } catch (error) {
     console.error('Error processing chat message:', error);
@@ -48,7 +57,11 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-app.listen(port, async () => {
+app.get('/api/chat', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
+app.listen(port, () => {
   console.log(`API server listening on port ${port}`);
-  await initialize();
+  initialize();
 }); 
