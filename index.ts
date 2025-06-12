@@ -122,7 +122,14 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
       modelName: "gpt-3.5-turbo",
       temperature: 0.7,
       maxRetries: 3,
-      apiKey: OPENROUTER_API_KEY,
+      configuration: {
+        baseURL: "https://openrouter.ai/api/v1",
+        defaultHeaders: {
+          "HTTP-Referer": "https://github.com/yourusername/zeon-hybrid", // Replace with your site
+          "X-Title": "Zeon Hybrid Agent"
+        }
+      },
+      apiKey: OPENROUTER_API_KEY
     });
 
     const tools: any[] = [];
@@ -362,7 +369,10 @@ async function processMessage(
   } catch (error: any) {
     console.error("Error processing message:", error);
 
-    if (error.message.includes("insufficient funds")) {
+    if (error.message.includes("401")) {
+      console.error("OpenRouter authentication error:", error);
+      return `❌ Authentication error with AI service. Please check the API configuration.`;
+    } else if (error.message.includes("insufficient funds")) {
       return `❌ Insufficient funds! Please make sure you have enough ETH in your wallet for this transaction. You can get testnet ETH from the Base Sepolia faucet.`;
     } else if (error.message.includes("invalid address")) {
       return `❌ Invalid address format! Please provide a valid Ethereum address (starting with 0x) or ENS name.`;
