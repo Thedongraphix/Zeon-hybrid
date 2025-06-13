@@ -19,8 +19,15 @@ import { z } from "zod";
 import fs from "node:fs";
 import { Client, XmtpEnv } from "@xmtp/node-sdk";
 import { ethers } from "ethers";
-import QRCode from "qrcode";
 import contractArtifact from "./dist/CrowdFund.json" with { type: "json" };
+import {
+  generateBaseScanLink,
+  isValidTxHash,
+  isValidAddress,
+  generateQRCode,
+  generateContributionQR,
+  formatTransactionResponse
+} from "./utils/blockchain.js";
 
 const {
   WALLET_KEY,
@@ -145,30 +152,31 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
       func: async (input) => {
         try {
           const { contractAddress, amountInEth, fundraiserName } = input;
-          const valueInWei = ethers.parseEther(amountInEth).toString();
-          const data = `ethereum:${contractAddress}?value=${valueInWei}`;
           
-          // Generate as an SVG string
-          const svgString = await QRCode.toString(data, {
-            type: "svg",
-            width: 256,
-            margin: 1,
-          });
+          // Validate contract address
+          if (!isValidAddress(contractAddress)) {
+            return `❌ Invalid contract address format: ${contractAddress}`;
+          }
+          
+          const valueInWei = ethers.parseEther(amountInEth).toString();
+          const paymentData = `ethereum:${contractAddress}?value=${valueInWei}`;
+          
+          // Generate QR code using utility function
+          const qrCode = await generateQRCode(paymentData, "Contribution QR Code");
+          
+          // Add contract link
+          const contractScanLink = generateBaseScanLink(contractAddress, 'address');
+          
+          return `Here is the QR code for contributing ${amountInEth} ETH to the fundraiser for "${fundraiserName}":
 
-          // Encode SVG to base64
-          const base64Svg = Buffer.from(svgString).toString('base64');
-
-          // Return a formatted markdown response
-          return `
-Here is the QR code for contributing ${amountInEth} ETH to the fundraiser for "${fundraiserName}":
-
-![Contribution QR Code](data:image/svg+xml;base64,${base64Svg})
+${qrCode}
 
 You can scan this with your mobile wallet to contribute.
-`;
+
+🔍 **View Contract:** [${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}](${contractScanLink})`;
         } catch (e: any) {
           console.error("Error generating QR code:", e);
-          return `Error generating QR code: ${e.message}`;
+          return `❌ Error generating QR code: ${e.message}`;
         }
       },
     });
@@ -179,11 +187,17 @@ You can scan this with your mobile wallet to contribute.
       schema: z.object({
         beneficiaryAddress: z.string(),
         goalAmount: z.string(),
-        durationInSeconds: z.string()
+        durationInSeconds: z.string(),
+        fundraiserName: z.string().optional()
       }),
       func: async (input) => {
         try {
-          const { beneficiaryAddress, goalAmount, durationInSeconds } = input;
+          const { beneficiaryAddress, goalAmount, durationInSeconds, fundraiserName } = input;
+
+          // Validate beneficiary address
+          if (!isValidAddress(beneficiaryAddress)) {
+            return `❌ Invalid beneficiary address format: ${beneficiaryAddress}`;
+          }
 
           const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
           const wallet = new ethers.Wallet(WALLET_KEY, provider);
@@ -198,13 +212,22 @@ You can scan this with your mobile wallet to contribute.
           await deployedContract.waitForDeployment();
           const contractAddress = await deployedContract.getAddress();
 
+          // Generate contribution QR code for the new contract
+          const contributionQR = await generateContributionQR(
+            contractAddress, 
+            "0.01", // Default contribution amount
+            fundraiserName || "Fundraiser"
+          );
+
           return {
             contractAddress: contractAddress,
             transactionHash: tx.hash,
+            qrCode: contributionQR,
+            fundraiserName: fundraiserName || "Fundraiser"
           };
         } catch (e: any) {
           console.error("Error deploying contract:", e);
-          return `Error deploying contract: ${e.message}`;
+          return `❌ Error deploying contract: ${e.message}`;
         }
       },
     });
@@ -218,14 +241,22 @@ You can scan this with your mobile wallet to contribute.
       func: async (input) => {
         try {
           const { contractAddress } = input;
-          const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
           
+          // Validate contract address
+          if (!isValidAddress(contractAddress)) {
+            return `❌ Invalid contract address format: ${contractAddress}`;
+          }
+          
+          const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
           const fundraiserContract = new ethers.Contract(contractAddress, contractAbi, provider);
 
           const contributorAddresses = await fundraiserContract.getContributors();
           
           if (contributorAddresses.length === 0) {
-            return "No contributions have been made to this fundraiser yet.";
+            const contractScanLink = generateBaseScanLink(contractAddress, 'address');
+            return `No contributions have been made to this fundraiser yet.
+
+🔍 **View Contract:** [${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}](${contractScanLink})`;
           }
 
           const contributorsWithEns = await Promise.all(
@@ -242,16 +273,21 @@ You can scan this with your mobile wallet to contribute.
             })
           );
           
-          const contributorList = contributorsWithEns.map(c => `- **${c.ensName}**: \`${c.address}\``).join('\n');
+          const contributorList = contributorsWithEns.map(c => {
+            const addressScanLink = generateBaseScanLink(c.address, 'address');
+            return `- **${c.ensName}**: [\`${c.address}\`](${addressScanLink})`;
+          }).join('\n');
 
-          return `
-**Contributors for fundraiser ${contractAddress}:**
+          const contractScanLink = generateBaseScanLink(contractAddress, 'address');
+
+          return `**Contributors for fundraiser:**
 
 ${contributorList}
-          `;
+
+🔍 **View Contract:** [${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}](${contractScanLink})`;
         } catch (e: any) {
           console.error("Error getting contributors:", e);
-          return `Error getting contributors: ${e.message}`;
+          return `❌ Error getting contributors: ${e.message}`;
         }
       },
     });
@@ -265,8 +301,13 @@ ${contributorList}
       func: async (input) => {
         try {
           const { contractAddress } = input;
-          const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
           
+          // Validate contract address
+          if (!isValidAddress(contractAddress)) {
+            return `❌ Invalid contract address format: ${contractAddress}`;
+          }
+          
+          const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
           const fundraiserContract = new ethers.Contract(contractAddress, contractAbi, provider);
           
           const isActive = await fundraiserContract.isFundraiserActive();
@@ -274,14 +315,16 @@ ${contributorList}
             ? "✅ This fundraiser is still **active**." 
             : "❌ This fundraiser has **ended** and can no longer accept contributions.";
 
-          return `
-**Fundraiser Status for ${contractAddress}:**
+          const contractScanLink = generateBaseScanLink(contractAddress, 'address');
+
+          return `**Fundraiser Status:**
 
 ${statusMessage}
-          `;
+
+🔍 **View Contract:** [${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}](${contractScanLink})`;
         } catch (e: any) {
           console.error("Error checking fundraiser status:", e);
-          return `Error checking status: ${e.message}`;
+          return `❌ Error checking status: ${e.message}`;
         }
       },
     });
@@ -295,20 +338,27 @@ ${statusMessage}
       func: async (input) => {
         try {
           const { address } = input;
-          const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
           
+          // Validate wallet address
+          if (!isValidAddress(address)) {
+            return `❌ Invalid wallet address format: ${address}`;
+          }
+          
+          const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
           const balance = await provider.getBalance(address);
           const balanceInEth = ethers.formatEther(balance);
           
-          return `
-**Wallet Balance:**
+          const addressScanLink = generateBaseScanLink(address, 'address');
+          
+          return `**Wallet Balance:**
 
-- **Address:** \`${address}\`
+- **Address:** [\`${address}\`](${addressScanLink})
 - **Balance:** \`${balanceInEth}\` ETH (on Base Sepolia)
-          `;
+
+🔍 **View on Block Explorer:** [${address.slice(0, 10)}...${address.slice(-8)}](${addressScanLink})`;
         } catch (e: any) {
           console.error("Error checking wallet balance:", e);
-          return `Error checking wallet balance: ${e.message}`;
+          return `❌ Error checking wallet balance: ${e.message}`;
         }
       },
     });
@@ -324,23 +374,39 @@ ${statusMessage}
 
           // Special handling for our custom deploy tool
           if (tool.name === 'deploy_fundraiser_contract' && typeof result === 'object' && result !== null && 'contractAddress' in result && 'transactionHash' in result) {
-            txHash = result.transactionHash;
-            const txScannerUrl = `https://sepolia.basescan.org/tx/${txHash}`;
-            const contractScannerUrl = `https://sepolia.basescan.org/address/${result.contractAddress}`;
-            return `
-Successfully deployed the fundraiser contract!
+            const txHashValue = result.transactionHash as string;
+            
+            // Validate transaction hash
+            if (!isValidTxHash(txHashValue)) {
+              return `❌ Invalid transaction hash received: ${txHashValue}`;
+            }
+            
+            const txScannerUrl = generateBaseScanLink(txHashValue, 'tx');
+            const contractScannerUrl = generateBaseScanLink(result.contractAddress as string, 'address');
+            const shortTxHash = `${txHashValue.slice(0, 10)}...${txHashValue.slice(-8)}`;
+            
+            let response = `🎉 Successfully deployed the fundraiser contract!
 
-**Contract Address:** \`${result.contractAddress}\`
-[View on block explorer](${contractScannerUrl})
+**Contract Address:** [\`${result.contractAddress}\`](${contractScannerUrl})
 
-**Transaction Hash:** \`${txHash}\`
-[View on block explorer](${txScannerUrl})
-            `;
+**Transaction Hash:** [\`${shortTxHash}\`](${txScannerUrl})
+
+🔍 **View on Base Sepolia Scan:**
+- [Contract Details](${contractScannerUrl})
+- [Deployment Transaction](${txScannerUrl})`;
+
+            // Include QR code if available
+            if ('qrCode' in result && result.qrCode) {
+              response += `\n\n${result.qrCode}`;
+            }
+
+            return response;
           }
 
           // Generic handling for AgentKit and other tools
           let resultString = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
           
+          // Extract transaction hash from various possible formats
           if (typeof result === 'object' && result !== null && 'transactionHash' in result) {
             txHash = (result as { transactionHash: string }).transactionHash;
           } else if (typeof result === 'string' && result.startsWith('0x') && result.length === 66) {
@@ -349,15 +415,17 @@ Successfully deployed the fundraiser contract!
             txHash = (result as { tx_hash: string }).tx_hash;
           }
           
-          if (txHash) {
-              const scannerUrl = `https://sepolia.basescan.org/tx/${txHash}`;
-              resultString += `\n\nView on block explorer: ${scannerUrl}`;
+          // Add transaction link if valid hash found
+          if (txHash && isValidTxHash(txHash)) {
+            const scannerUrl = generateBaseScanLink(txHash, 'tx');
+            const shortTxHash = `${txHash.slice(0, 10)}...${txHash.slice(-8)}`;
+            resultString += `\n\n🔍 **View on Base Sepolia Scan:** [${shortTxHash}](${scannerUrl})`;
           }
 
           return resultString;
         } catch (e: any) {
           console.error(`Error in tool ${tool.name}:`, e);
-          return `Error executing tool ${tool.name}: ${e.message}`;
+          return `❌ Error executing tool ${tool.name}: ${e.message}`;
         }
       };
     }
