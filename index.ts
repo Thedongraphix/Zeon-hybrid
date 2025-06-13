@@ -139,19 +139,33 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
       description: "Generates a QR code as an SVG string for a contribution",
       schema: z.object({
         contractAddress: z.string(),
-        amountInEth: z.string()
+        amountInEth: z.string(),
+        fundraiserName: z.string(),
       }),
       func: async (input) => {
         try {
-          const { contractAddress, amountInEth } = input;
+          const { contractAddress, amountInEth, fundraiserName } = input;
           const valueInWei = ethers.parseEther(amountInEth).toString();
           const data = `ethereum:${contractAddress}?value=${valueInWei}`;
-          // Generate as an SVG string for crisp rendering
-          return await QRCode.toString(data, {
+          
+          // Generate as an SVG string
+          const svgString = await QRCode.toString(data, {
             type: "svg",
             width: 256,
             margin: 1,
           });
+
+          // Encode SVG to base64
+          const base64Svg = Buffer.from(svgString).toString('base64');
+
+          // Return a formatted markdown response
+          return `
+Here is the QR code for contributing ${amountInEth} ETH to the fundraiser for "${fundraiserName}":
+
+![Contribution QR Code](data:image/svg+xml;base64,${base64Svg})
+
+You can scan this with your mobile wallet to contribute.
+`;
         } catch (e: any) {
           console.error("Error generating QR code:", e);
           return `Error generating QR code: ${e.message}`;
@@ -220,15 +234,21 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
                 // Use a generic provider for ENS lookup as it's on mainnet
                 const mainnetProvider = new ethers.JsonRpcProvider("https://mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161"); // public endpoint
                 const ensName = await mainnetProvider.lookupAddress(address);
-                return { address, ensName: ensName || "No ENS name" };
+                return { address, ensName: ensName || "N/A" };
               } catch (e) {
                 console.warn(`Could not resolve ENS for ${address}:`, e);
-                return { address, ensName: "No ENS name" };
+                return { address, ensName: "N/A" };
               }
             })
           );
           
-          return `Contributors:\n${contributorsWithEns.map(c => `- ${c.ensName} (${c.address})`).join('\n')}`;
+          const contributorList = contributorsWithEns.map(c => `- **${c.ensName}**: \`${c.address}\``).join('\n');
+
+          return `
+**Contributors for fundraiser ${contractAddress}:**
+
+${contributorList}
+          `;
         } catch (e: any) {
           console.error("Error getting contributors:", e);
           return `Error getting contributors: ${e.message}`;
@@ -250,7 +270,15 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
           const fundraiserContract = new ethers.Contract(contractAddress, contractAbi, provider);
           
           const isActive = await fundraiserContract.isFundraiserActive();
-          return isActive ? "This fundraiser is still active." : "This fundraiser has ended and can no longer accept contributions.";
+          const statusMessage = isActive 
+            ? "✅ This fundraiser is still **active**." 
+            : "❌ This fundraiser has **ended** and can no longer accept contributions.";
+
+          return `
+**Fundraiser Status for ${contractAddress}:**
+
+${statusMessage}
+          `;
         } catch (e: any) {
           console.error("Error checking fundraiser status:", e);
           return `Error checking status: ${e.message}`;
@@ -272,7 +300,12 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
           const balance = await provider.getBalance(address);
           const balanceInEth = ethers.formatEther(balance);
           
-          return `Your wallet balance is ${balanceInEth} ETH on Base Sepolia network.`;
+          return `
+**Wallet Balance:**
+
+- **Address:** \`${address}\`
+- **Balance:** \`${balanceInEth}\` ETH (on Base Sepolia)
+          `;
         } catch (e: any) {
           console.error("Error checking wallet balance:", e);
           return `Error checking wallet balance: ${e.message}`;
@@ -292,8 +325,17 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
           // Special handling for our custom deploy tool
           if (tool.name === 'deploy_fundraiser_contract' && typeof result === 'object' && result !== null && 'contractAddress' in result && 'transactionHash' in result) {
             txHash = result.transactionHash;
-            const scannerUrl = `https://sepolia.basescan.org/tx/${txHash}`;
-            return `Successfully deployed fundraising contract. Address: ${result.contractAddress}\n\nView on block explorer: ${scannerUrl}`;
+            const txScannerUrl = `https://sepolia.basescan.org/tx/${txHash}`;
+            const contractScannerUrl = `https://sepolia.basescan.org/address/${result.contractAddress}`;
+            return `
+Successfully deployed the fundraiser contract!
+
+**Contract Address:** \`${result.contractAddress}\`
+[View on block explorer](${contractScannerUrl})
+
+**Transaction Hash:** \`${txHash}\`
+[View on block explorer](${txScannerUrl})
+            `;
           }
 
           // Generic handling for AgentKit and other tools
