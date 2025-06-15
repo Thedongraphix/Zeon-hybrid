@@ -34,13 +34,12 @@ const artifact = {
   bytecode: contractArtifact.evm.bytecode.object,
 };
 
-const artifactPath = path.resolve(__dirname, 'dist', 'CrowdFund.json');
-const distDir = path.dirname(artifactPath);
-
-if (!fs.existsSync(distDir)) {
-  fs.mkdirSync(distDir, { recursive: true });
+const helpersDir = path.resolve(__dirname, 'helpers');
+if (!fs.existsSync(helpersDir)) {
+    fs.mkdirSync(helpersDir, { recursive: true });
 }
 
+const artifactPath = path.resolve(helpersDir, 'CrowdFund.json');
 fs.writeFileSync(artifactPath, JSON.stringify(artifact, null, 2));
 
-console.log('✅ CrowdFund contract compiled and artifact saved to dist/CrowdFund.json'); 
+console.log('✅ CrowdFund contract compiled and artifact saved to helpers/CrowdFund.json'); 

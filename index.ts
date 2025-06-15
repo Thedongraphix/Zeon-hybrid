@@ -23,7 +23,7 @@ import {
 } from "./utils/blockchain.js";
 
 // --- Pre-compile contract to avoid doing it on every request ---
-import sbt from "./helpers/sbt.json" with { type: "json" };
+import sbt from "./helpers/CrowdFund.json" with { type: "json" };
 const contractAbi = sbt.abi;
 const contractBytecode = sbt.bytecode;
 // --- End pre-compilation ---

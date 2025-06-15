@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "compile-contract": "tsx compile-contract.ts",
-    "build": "yarn compile-contract && tsc",
+    "build": "yarn compile-contract && tsc && cp -r helpers dist/helpers",
     "start": "node dist/index.js",
     "dev": "tsx --watch index.ts"
   },
