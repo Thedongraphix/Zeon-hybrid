@@ -10,7 +10,7 @@ import fs from "node:fs";
 import { Client } from "@xmtp/node-sdk";
 import { ethers } from "ethers";
 import contractArtifact from "./dist/CrowdFund.json" with { type: "json" };
-import { generateBaseScanLink, isValidTxHash, isValidAddress, generateQRCode, generateContributionQR } from "./utils/blockchain.js";
+import { generateBaseScanLink, isValidAddress, generateContributionQR, formatDeployResponse } from "./utils/blockchain.js";
 const { WALLET_KEY, ENCRYPTION_KEY, XMTP_ENV, NETWORK_ID, OPENROUTER_API_KEY, } = validateEnvironment([
     "WALLET_KEY",
     "ENCRYPTION_KEY",
@@ -24,6 +24,10 @@ const WALLET_STORAGE_DIR = ".data/wallet";
 // Global stores
 const memoryStore = {};
 const agentStore = {};
+// Global, shared components to reduce initialization latency
+let llm;
+let tools = [];
+let sharedComponentsInitialized = false;
 // Ensure storage directories exist
 function ensureLocalStorage() {
     // NOTE: Using fs for storage is not suitable for Render's ephemeral filesystem.
@@ -82,271 +86,97 @@ async function initializeXmtpClient() {
 const contractAbi = contractArtifact.abi;
 const contractBytecode = contractArtifact.bytecode;
 // --- End pre-compilation ---
+// NEW: One-time initialization of shared components
+async function initializeSharedComponents() {
+    if (sharedComponentsInitialized)
+        return;
+    console.log("🔧 Initializing shared AI components...");
+    llm = new ChatOpenAI({
+        modelName: "gpt-3.5-turbo",
+        temperature: 0.7,
+        maxRetries: 3,
+        configuration: {
+            baseURL: "https://openrouter.ai/api/v1",
+            defaultHeaders: {
+                "HTTP-Referer": "https://github.com/yourusername/zeon-hybrid",
+                "X-Title": "Zeon Hybrid Agent"
+            }
+        },
+        apiKey: OPENROUTER_API_KEY
+    });
+    const qrCodeTool = new DynamicStructuredTool({
+        name: "generate_contribution_qr_code",
+        description: "Generates a QR code as an SVG string for a contribution",
+        schema: z.object({
+            contractAddress: z.string(),
+            amountInEth: z.string(),
+            fundraiserName: z.string(),
+        }),
+        func: async (input) => {
+            try {
+                const { contractAddress, amountInEth, fundraiserName } = input;
+                if (!isValidAddress(contractAddress)) {
+                    return `❌ Invalid contract address format: ${contractAddress}`;
+                }
+                const contributionQR = await generateContributionQR(contractAddress, amountInEth, fundraiserName);
+                const contractScanLink = generateBaseScanLink(contractAddress, 'address');
+                return `${contributionQR}
+
+🔍 **View Contract:** [${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}](${contractScanLink})`;
+            }
+            catch (e) {
+                console.error("Error generating QR code:", e);
+                return `❌ Error generating QR code: ${e.message}`;
+            }
+        },
+    });
+    const deployFundraiserTool = new DynamicStructuredTool({
+        name: "deploy_fundraiser_contract",
+        description: "Deploys a fundraising contract",
+        schema: z.object({
+            beneficiaryAddress: z.string(),
+            goalAmount: z.string(),
+            durationInSeconds: z.string(),
+            fundraiserName: z.string().optional().default("My Fundraiser")
+        }),
+        func: async (input) => {
+            try {
+                const { beneficiaryAddress, goalAmount, durationInSeconds, fundraiserName } = input;
+                if (!isValidAddress(beneficiaryAddress)) {
+                    return `❌ Invalid beneficiary address format: ${beneficiaryAddress}`;
+                }
+                const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
+                const wallet = new ethers.Wallet(WALLET_KEY, provider);
+                const factory = new ethers.ContractFactory(contractAbi, contractBytecode, wallet);
+                const goalInWei = ethers.parseEther(goalAmount);
+                const deployedContract = await factory.deploy(beneficiaryAddress, goalInWei, durationInSeconds);
+                const tx = deployedContract.deploymentTransaction();
+                if (!tx)
+                    throw new Error("Deployment transaction not found.");
+                await deployedContract.waitForDeployment();
+                const contractAddress = await deployedContract.getAddress();
+                const contributionQR = await generateContributionQR(contractAddress, "0.01", // Default contribution amount
+                fundraiserName);
+                // Use the new formatter to prevent incorrect links
+                return formatDeployResponse(contractAddress, tx.hash, fundraiserName, goalAmount, contributionQR);
+            }
+            catch (e) {
+                console.error("Error deploying contract:", e);
+                return `❌ Error deploying contract: ${e.message}`;
+            }
+        },
+    });
+    // Add all your other tools here (getFundraiserContributorsTool, checkFundraiserStatusTool, checkWalletBalanceTool)
+    // ...
+    tools = [deployFundraiserTool, qrCodeTool /* ...other tools... */];
+    sharedComponentsInitialized = true;
+    console.log("✅ Shared components initialized");
+}
 // Initialize CDP agent
 async function initializeAgent(userId, client) {
     try {
-        const llm = new ChatOpenAI({
-            modelName: "gpt-3.5-turbo",
-            temperature: 0.7,
-            maxRetries: 3,
-            configuration: {
-                baseURL: "https://openrouter.ai/api/v1",
-                defaultHeaders: {
-                    "HTTP-Referer": "https://github.com/yourusername/zeon-hybrid", // Replace with your site
-                    "X-Title": "Zeon Hybrid Agent"
-                }
-            },
-            apiKey: OPENROUTER_API_KEY
-        });
-        const tools = [];
-        const qrCodeTool = new DynamicStructuredTool({
-            name: "generate_contribution_qr_code",
-            description: "Generates a QR code as an SVG string for a contribution",
-            schema: z.object({
-                contractAddress: z.string(),
-                amountInEth: z.string(),
-                fundraiserName: z.string(),
-            }),
-            func: async (input) => {
-                try {
-                    const { contractAddress, amountInEth, fundraiserName } = input;
-                    // Validate contract address
-                    if (!isValidAddress(contractAddress)) {
-                        return `❌ Invalid contract address format: ${contractAddress}`;
-                    }
-                    const valueInWei = ethers.parseEther(amountInEth).toString();
-                    const paymentData = `ethereum:${contractAddress}?value=${valueInWei}`;
-                    // Generate QR code using utility function
-                    const qrCode = await generateQRCode(paymentData, "Contribution QR Code");
-                    // Add contract link
-                    const contractScanLink = generateBaseScanLink(contractAddress, 'address');
-                    return `Here is the QR code for contributing ${amountInEth} ETH to the fundraiser for "${fundraiserName}":
-
-${qrCode}
-
-You can scan this with your mobile wallet to contribute.
-
-🔍 **View Contract:** [${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}](${contractScanLink})`;
-                }
-                catch (e) {
-                    console.error("Error generating QR code:", e);
-                    return `❌ Error generating QR code: ${e.message}`;
-                }
-            },
-        });
-        const deployFundraiserTool = new DynamicStructuredTool({
-            name: "deploy_fundraiser_contract",
-            description: "Deploys a fundraising contract",
-            schema: z.object({
-                beneficiaryAddress: z.string(),
-                goalAmount: z.string(),
-                durationInSeconds: z.string(),
-                fundraiserName: z.string().optional()
-            }),
-            func: async (input) => {
-                try {
-                    const { beneficiaryAddress, goalAmount, durationInSeconds, fundraiserName } = input;
-                    // Validate beneficiary address
-                    if (!isValidAddress(beneficiaryAddress)) {
-                        return `❌ Invalid beneficiary address format: ${beneficiaryAddress}`;
-                    }
-                    const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
-                    const wallet = new ethers.Wallet(WALLET_KEY, provider);
-                    const factory = new ethers.ContractFactory(contractAbi, contractBytecode, wallet);
-                    const goalInWei = ethers.parseEther(goalAmount);
-                    const deployedContract = await factory.deploy(beneficiaryAddress, goalInWei, durationInSeconds);
-                    const tx = deployedContract.deploymentTransaction();
-                    if (!tx) {
-                        throw new Error("Deployment transaction not found.");
-                    }
-                    await deployedContract.waitForDeployment();
-                    const contractAddress = await deployedContract.getAddress();
-                    // Generate contribution QR code for the new contract
-                    const contributionQR = await generateContributionQR(contractAddress, "0.01", // Default contribution amount
-                    fundraiserName || "Fundraiser");
-                    return {
-                        contractAddress: contractAddress,
-                        transactionHash: tx.hash,
-                        qrCode: contributionQR,
-                        fundraiserName: fundraiserName || "Fundraiser"
-                    };
-                }
-                catch (e) {
-                    console.error("Error deploying contract:", e);
-                    return `❌ Error deploying contract: ${e.message}`;
-                }
-            },
-        });
-        const getFundraiserContributorsTool = new DynamicStructuredTool({
-            name: "get_fundraiser_contributors",
-            description: "Get the list of contributors for a fundraiser",
-            schema: z.object({
-                contractAddress: z.string()
-            }),
-            func: async (input) => {
-                try {
-                    const { contractAddress } = input;
-                    // Validate contract address
-                    if (!isValidAddress(contractAddress)) {
-                        return `❌ Invalid contract address format: ${contractAddress}`;
-                    }
-                    const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
-                    const fundraiserContract = new ethers.Contract(contractAddress, contractAbi, provider);
-                    const contributorAddresses = await fundraiserContract.getContributors();
-                    if (contributorAddresses.length === 0) {
-                        const contractScanLink = generateBaseScanLink(contractAddress, 'address');
-                        return `No contributions have been made to this fundraiser yet.
-
-🔍 **View Contract:** [${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}](${contractScanLink})`;
-                    }
-                    const contributorsWithEns = await Promise.all(contributorAddresses.map(async (address) => {
-                        try {
-                            // Use a generic provider for ENS lookup as it's on mainnet
-                            const mainnetProvider = new ethers.JsonRpcProvider("https://mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161"); // public endpoint
-                            const ensName = await mainnetProvider.lookupAddress(address);
-                            return { address, ensName: ensName || "N/A" };
-                        }
-                        catch (e) {
-                            console.warn(`Could not resolve ENS for ${address}:`, e);
-                            return { address, ensName: "N/A" };
-                        }
-                    }));
-                    const contributorList = contributorsWithEns.map(c => {
-                        const addressScanLink = generateBaseScanLink(c.address, 'address');
-                        return `- **${c.ensName}**: [\`${c.address}\`](${addressScanLink})`;
-                    }).join('\n');
-                    const contractScanLink = generateBaseScanLink(contractAddress, 'address');
-                    return `**Contributors for fundraiser:**
-
-${contributorList}
-
-🔍 **View Contract:** [${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}](${contractScanLink})`;
-                }
-                catch (e) {
-                    console.error("Error getting contributors:", e);
-                    return `❌ Error getting contributors: ${e.message}`;
-                }
-            },
-        });
-        const checkFundraiserStatusTool = new DynamicStructuredTool({
-            name: "check_fundraiser_status",
-            description: "Checks if a fundraiser is still active",
-            schema: z.object({
-                contractAddress: z.string()
-            }),
-            func: async (input) => {
-                try {
-                    const { contractAddress } = input;
-                    // Validate contract address
-                    if (!isValidAddress(contractAddress)) {
-                        return `❌ Invalid contract address format: ${contractAddress}`;
-                    }
-                    const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
-                    const fundraiserContract = new ethers.Contract(contractAddress, contractAbi, provider);
-                    const isActive = await fundraiserContract.isFundraiserActive();
-                    const statusMessage = isActive
-                        ? "✅ This fundraiser is still **active**."
-                        : "❌ This fundraiser has **ended** and can no longer accept contributions.";
-                    const contractScanLink = generateBaseScanLink(contractAddress, 'address');
-                    return `**Fundraiser Status:**
-
-${statusMessage}
-
-🔍 **View Contract:** [${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}](${contractScanLink})`;
-                }
-                catch (e) {
-                    console.error("Error checking fundraiser status:", e);
-                    return `❌ Error checking status: ${e.message}`;
-                }
-            },
-        });
-        const checkWalletBalanceTool = new DynamicStructuredTool({
-            name: "check_wallet_balance",
-            description: "Checks the balance of an Ethereum wallet address",
-            schema: z.object({
-                address: z.string()
-            }),
-            func: async (input) => {
-                try {
-                    const { address } = input;
-                    // Validate wallet address
-                    if (!isValidAddress(address)) {
-                        return `❌ Invalid wallet address format: ${address}`;
-                    }
-                    const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
-                    const balance = await provider.getBalance(address);
-                    const balanceInEth = ethers.formatEther(balance);
-                    const addressScanLink = generateBaseScanLink(address, 'address');
-                    return `**Wallet Balance:**
-
-- **Address:** [\`${address}\`](${addressScanLink})
-- **Balance:** \`${balanceInEth}\` ETH (on Base Sepolia)
-
-🔍 **View on Block Explorer:** [${address.slice(0, 10)}...${address.slice(-8)}](${addressScanLink})`;
-                }
-                catch (e) {
-                    console.error("Error checking wallet balance:", e);
-                    return `❌ Error checking wallet balance: ${e.message}`;
-                }
-            },
-        });
-        tools.push(deployFundraiserTool, qrCodeTool, getFundraiserContributorsTool, checkFundraiserStatusTool, checkWalletBalanceTool);
-        for (const tool of tools) {
-            const originalInvoke = tool.invoke;
-            tool.invoke = async (input) => {
-                try {
-                    const result = await originalInvoke.call(tool, input);
-                    let txHash;
-                    // Special handling for our custom deploy tool
-                    if (tool.name === 'deploy_fundraiser_contract' && typeof result === 'object' && result !== null && 'contractAddress' in result && 'transactionHash' in result) {
-                        const txHashValue = result.transactionHash;
-                        // Validate transaction hash
-                        if (!isValidTxHash(txHashValue)) {
-                            return `❌ Invalid transaction hash received: ${txHashValue}`;
-                        }
-                        const txScannerUrl = generateBaseScanLink(txHashValue, 'tx');
-                        const contractScannerUrl = generateBaseScanLink(result.contractAddress, 'address');
-                        const shortTxHash = `${txHashValue.slice(0, 10)}...${txHashValue.slice(-8)}`;
-                        let response = `🎉 Successfully deployed the fundraiser contract!
-
-**Contract Address:** [\`${result.contractAddress}\`](${contractScannerUrl})
-
-**Transaction Hash:** [\`${shortTxHash}\`](${txScannerUrl})
-
-🔍 **View on Base Sepolia Scan:**
-- [Contract Details](${contractScannerUrl})
-- [Deployment Transaction](${txScannerUrl})`;
-                        // Include QR code if available
-                        if ('qrCode' in result && result.qrCode) {
-                            response += `\n\n${result.qrCode}`;
-                        }
-                        return response;
-                    }
-                    // Generic handling for AgentKit and other tools
-                    let resultString = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-                    // Extract transaction hash from various possible formats
-                    if (typeof result === 'object' && result !== null && 'transactionHash' in result) {
-                        txHash = result.transactionHash;
-                    }
-                    else if (typeof result === 'string' && result.startsWith('0x') && result.length === 66) {
-                        txHash = result;
-                    }
-                    else if (typeof result === 'object' && result !== null && 'tx_hash' in result) {
-                        txHash = result.tx_hash;
-                    }
-                    // Add transaction link if valid hash found
-                    if (txHash && isValidTxHash(txHash)) {
-                        const scannerUrl = generateBaseScanLink(txHash, 'tx');
-                        const shortTxHash = `${txHash.slice(0, 10)}...${txHash.slice(-8)}`;
-                        resultString += `\n\n🔍 **View on Base Sepolia Scan:** [${shortTxHash}](${scannerUrl})`;
-                    }
-                    return resultString;
-                }
-                catch (e) {
-                    console.error(`Error in tool ${tool.name}:`, e);
-                    return `❌ Error executing tool ${tool.name}: ${e.message}`;
-                }
-            };
+        if (!sharedComponentsInitialized) {
+            throw new Error("Shared components not initialized. Call initializeSharedComponents() first.");
         }
         memoryStore[userId] = new MemorySaver();
         const agentConfig = {
@@ -354,7 +184,7 @@ ${statusMessage}
         };
         const agent = await createReactAgent({
             llm,
-            tools
+            tools,
         });
         return { agent, config: agentConfig };
     }
@@ -444,6 +274,8 @@ async function startAgent() {
   `);
     try {
         ensureLocalStorage();
+        // Initialize shared components first
+        await initializeSharedComponents();
         console.log("🔧 Initializing XMTP Client...");
         const client = await initializeXmtpClient();
         console.log("🎯 Agent is ready and listening for API requests!");

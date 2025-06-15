@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import { ethers } from "ethers";
 
 // Helper function to generate Base Sepolia scan links
 export const generateBaseScanLink = (
@@ -28,7 +29,7 @@ export const isValidAddress = (address: string): boolean => {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
 };
 
-// Core QR Code Generation Function
+// Core QR Code Generation Function - IMPROVED
 export const generateQRCode = async (
   data: string, 
   description: string = "QR Code"
@@ -38,12 +39,12 @@ export const generateQRCode = async (
     const qrSvg = await QRCode.toString(data, {
       type: 'svg',
       width: 256,
-      margin: 1,
+      margin: 4, // Increased margin for better scannability
       color: {
         dark: '#000000',
         light: '#FFFFFF'
       },
-      errorCorrectionLevel: 'M'
+      errorCorrectionLevel: 'H' // High error correction for better reliability
     });
     
     // Convert SVG to base64
@@ -57,14 +58,16 @@ export const generateQRCode = async (
   }
 };
 
-// Wallet Contribution QR Code
+// Wallet Contribution QR Code - FIXED
 export const generateContributionQR = async (
   walletAddress: string, 
   amount: string, 
   fundraiserName: string
 ): Promise<string> => {
+  // Convert ETH amount to Wei for EIP-681 format
+  const amountInWei = ethers.parseEther(amount).toString();
   // EIP-681 format for wallet compatibility
-  const paymentData = `ethereum:${walletAddress}?value=${amount}`;
+  const paymentData = `ethereum:${walletAddress}?value=${amountInWei}`;
   const description = `Contribution QR Code`;
   
   const qrCode = await generateQRCode(paymentData, description);
@@ -138,4 +141,30 @@ export const formatTransactionResponse = (
   }
 
   return response;
+};
+
+// NEW: Deployment Response Formatter - PREVENTS INCORRECT LINKS
+export const formatDeployResponse = (
+  contractAddress: string,
+  txHash: string,
+  fundraiserName: string,
+  goalAmount: string,
+  qrCode: string
+): string => {
+  const contractUrl = generateBaseScanLink(contractAddress, 'address');
+  const txUrl = generateBaseScanLink(txHash, 'tx');
+
+  return `🎉 Fundraiser "${fundraiserName}" created successfully!
+
+**Contract Address:** \`${contractAddress}\`
+[View on Base Sepolia Scan](${contractUrl})
+
+**Transaction Hash:** \`${txHash}\`
+[View on Base Sepolia Scan](${txUrl})
+
+**Fundraising Goal:** ${goalAmount} ETH
+
+${qrCode}
+
+Share this QR code for easy contributions to your fundraiser!`;
 }; 
