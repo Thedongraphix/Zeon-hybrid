@@ -12,7 +12,7 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 // Local utilities
 import { generateBaseScanLink, isValidAddress, generateContributionQR, formatDeployResponse, } from "./utils/blockchain.js";
 // --- Pre-compile contract to avoid doing it on every request ---
-import sbt from "./helpers/sbt.json" with { type: "json" };
+import sbt from "./helpers/CrowdFund.json" with { type: "json" };
 const contractAbi = sbt.abi;
 const contractBytecode = sbt.bytecode;
 // --- End pre-compilation ---
@@ -54,7 +54,7 @@ async function initializeAgentForUser(userId) {
         },
         apiKey: OPENROUTER_API_KEY
     });
-    // Define all custom tools for the agent
+    // Define all custom tools for the agent to use
     const deployFundraiserTool = new DynamicStructuredTool({
         name: "deploy_fundraiser_contract",
         description: "Deploys a new fundraising smart contract.",

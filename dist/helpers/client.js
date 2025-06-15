@@ -5,6 +5,7 @@ import { fromString, toString } from "uint8arrays";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
+import { toBytes } from "./encoding.js";
 export const createUser = (key) => {
     const account = privateKeyToAccount(key);
     return {
@@ -20,19 +21,22 @@ export const createUser = (key) => {
 export const createSigner = (key) => {
     const sanitizedKey = key.startsWith("0x") ? key : `0x${key}`;
     const user = createUser(sanitizedKey);
+    const address = user.account.address.toLowerCase();
     return {
         type: "EOA",
-        getIdentifier: () => ({
-            identifierKind: 0 /* IdentifierKind.Ethereum */,
-            identifier: user.account.address.toLowerCase(),
-        }),
-        signMessage: async (message) => {
+        async signMessage(message) {
             const signature = await user.wallet.signMessage({
                 message,
                 account: user.account,
             });
             return toBytes(signature);
         },
+        async getIdentifier() {
+            return {
+                identifierKind: 0 /* IdentifierKind.Ethereum */,
+                identifier: address
+            };
+        }
     };
 };
 /**
@@ -147,17 +151,4 @@ export function validateEnvironment(vars) {
         acc[key] = process.env[key];
         return acc;
     }, {});
-}
-// Fix the toBytes function
-function toBytes(signature) {
-    if (typeof signature === 'string') {
-        // Remove '0x' prefix if present
-        const hex = signature.startsWith('0x') ? signature.slice(2) : signature;
-        return fromString(hex, 'hex');
-    }
-    // If it's already a Uint8Array, return it
-    if (signature instanceof Uint8Array) {
-        return signature;
-    }
-    throw new Error('Invalid signature format');
 }
