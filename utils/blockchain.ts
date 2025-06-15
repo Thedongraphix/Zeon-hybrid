@@ -29,29 +29,24 @@ export const isValidAddress = (address: string): boolean => {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
 };
 
-// Core QR Code Generation Function - IMPROVED
+// Core QR Code Generation Function - NOW USING PNG
 export const generateQRCode = async (
   data: string, 
   description: string = "QR Code"
 ): Promise<string> => {
   try {
-    // Generate QR code as SVG for crisp display
-    const qrSvg = await QRCode.toString(data, {
-      type: 'svg',
+    // Generate QR code as PNG for better compatibility
+    const qrPng = await QRCode.toDataURL(data, {
+      type: 'image/png',
       width: 256,
-      margin: 4, // Increased margin for better scannability
-      color: {
-        dark: '#000000',
-        light: '#FFFFFF'
-      },
-      errorCorrectionLevel: 'H' // High error correction for better reliability
+      margin: 2,
+      errorCorrectionLevel: 'M'
     });
     
-    // Convert SVG to base64
-    const base64Data = Buffer.from(qrSvg).toString('base64');
+    const base64Data = qrPng.split(',')[1];
     
-    // Return in markdown format for frontend detection
-    return `![${description}](data:image/svg+xml;base64,${base64Data})`;
+    // Return as PNG image in markdown format
+    return `![${description}](data:image/png;base64,${base64Data})`;
   } catch (error) {
     console.error('QR code generation failed:', error);
     return `[QR Code Generation Failed: ${description}]`;
@@ -155,7 +150,7 @@ The transaction hash \`${txHash}\` appears to be invalid.`;
   return response;
 };
 
-// NEW: Deployment Response Formatter - STYLED
+// Deployment Response Formatter - FIXED & STYLED
 export const formatDeployResponse = (
   contractAddress: string,
   txHash: string,
