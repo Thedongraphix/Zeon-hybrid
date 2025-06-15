@@ -86,7 +86,7 @@ async function initializeAgentForUser(userId: string): Promise<{ agent: Agent; c
         apiKey: OPENROUTER_API_KEY
     });
     
-    // Define all custom tools for the agent
+    // Define all custom tools for the agent to use
     const deployFundraiserTool = new DynamicStructuredTool({
         name: "deploy_fundraiser_contract",
         description: "Deploys a new fundraising smart contract.",

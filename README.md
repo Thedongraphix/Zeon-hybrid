@@ -1,2 +1,1 @@
-# Zeon-hybrid
-yes zeon gg Onchain Agent
+Check it out zeonai.xyz
