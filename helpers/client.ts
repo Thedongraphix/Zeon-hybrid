@@ -92,13 +92,15 @@ export const getEncryptionKeyFromHex = (hex: string) => {
 };
 
 export const getDbPath = (description: string = "xmtp") => {
-  //Checks if the environment is a Railway deployment
-  const volumePath = process.env.RAILWAY_VOLUME_MOUNT_PATH ?? ".data/xmtp";
+  // Render provides a persistent disk at /data. We'll default to a local path for development.
+  const volumePath = process.env.RENDER_DISK_PATH || ".xmtp/data";
   // Create database directory if it doesn't exist
   if (!fs.existsSync(volumePath)) {
     fs.mkdirSync(volumePath, { recursive: true });
   }
-  return `${volumePath}/${description}.db3`;
+  const dbPath = path.join(volumePath, `${description}.db3`);
+  console.log(`Using database path: ${dbPath}`);
+  return dbPath;
 };
 
 export const logAgentDetails = async (

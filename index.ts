@@ -21,7 +21,7 @@ import {
   generateContributionQR,
   formatDeployResponse,
 } from "./utils/blockchain.js";
-import { createSigner, logAgentDetails } from "./helpers/client.js";
+import { createSigner, logAgentDetails, getDbPath } from "./helpers/client.js";
 
 // --- Pre-compile contract to avoid doing it on every request ---
 import sbt from "./helpers/CrowdFund.json" with { type: "json" };
@@ -176,9 +176,13 @@ async function processMessage(agent: Agent, config: AgentConfig, message: string
 
 // --- XMTP Client and Message Handling ---
 async function initializeXmtpClient() {
+    console.log("🔧 Creating XMTP signer...");
     const signer = createSigner(WALLET_KEY!);
+    
+    console.log("🚀 Initializing XMTP client...");
     const xmtp = await Client.create(signer, {
         env: XMTP_ENV as XmtpEnv,
+        dbPath: getDbPath(`xmtp-${XMTP_ENV}.db3`),
     });
     return xmtp;
 }
@@ -249,31 +253,31 @@ app.get("/", (req, res) => res.send("Zeon Hybrid Agent is running!"));
 
 // --- Main Application Start ---
 async function main() {
-    // Start the API server immediately. The callback will be executed once the server is live.
+    // Start the API server first to respond to health checks
     const PORT = process.env.PORT || 3000;
-    app.listen(PORT, async () => {
+    app.listen(PORT, () => {
         console.log(`✅ API Server listening on port ${PORT}. Service is live.`);
         
-        // Now, initialize the XMTP client and start the listener in the background.
-        console.log("🚀 Initializing XMTP client in the background...");
-        try {
-            const xmtpClient = await initializeXmtpClient();
-            console.log("✅ XMTP client initialized successfully.");
+        // Now that the server is live, start the XMTP client in the background.
+        // This avoids Render deployment timeouts.
+        console.log("⏳ Starting XMTP listener process in the background...");
+        
+        initializeXmtpClient()
+            .then(xmtpClient => {
+                console.log("✅ XMTP client initialized successfully.");
+                
+                // Log details without blocking
+                logAgentDetails(xmtpClient).catch(err => {
+                    console.warn("Could not log agent details:", err);
+                });
 
-            // Start the listener. This will run indefinitely.
-            startXmtpListener(xmtpClient).catch(err => {
-                console.error("XMTP Listener crashed:", err);
-                // We'll log the error but not exit, to keep the API alive.
+                // Start the listener. This will run indefinitely.
+                return startXmtpListener(xmtpClient);
+            })
+            .catch(err => {
+                console.error("🚨 Critical: XMTP client or listener failed to start.", err);
+                // We don't call process.exit, to keep the API alive if possible.
             });
-
-            // Log agent details without blocking.
-            logAgentDetails(xmtpClient).catch(err => {
-                console.warn("Could not log agent details:", err);
-            });
-
-        } catch (err) {
-            console.error("🚨 Failed to initialize XMTP client:", err);
-        }
     });
 }
 
