@@ -1,6 +1,6 @@
 import "dotenv/config";
 import express from "express";
-import { ethers, Wallet } from "ethers";
+import { ethers } from "ethers";
 import { z } from "zod";
 // XMTP and LangChain/AgentKit related imports
 import { Client } from "@xmtp/node-sdk";
@@ -11,6 +11,7 @@ import { MemorySaver } from "@langchain/langgraph";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 // Local utilities
 import { generateBaseScanLink, isValidAddress, generateContributionQR, formatDeployResponse, } from "./utils/blockchain.js";
+import { createSigner } from "./helpers/client.js";
 // --- Pre-compile contract to avoid doing it on every request ---
 import sbt from "./helpers/CrowdFund.json" with { type: "json" };
 const contractAbi = sbt.abi;
@@ -137,7 +138,7 @@ async function processMessage(agent, config, message) {
 }
 // --- XMTP Client and Message Handling ---
 async function initializeXmtpClient() {
-    const signer = new Wallet(WALLET_KEY);
+    const signer = createSigner(WALLET_KEY);
     const xmtp = await Client.create(signer, {
         env: XMTP_ENV,
     });

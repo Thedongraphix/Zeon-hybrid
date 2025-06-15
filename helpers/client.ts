@@ -3,10 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { IdentifierKind, type Client, type Signer } from "@xmtp/node-sdk";
 import { fromString, toString } from "uint8arrays";
+import { Wallet } from "ethers";
+import { toBytes } from "./encoding.js";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
-import { toBytes } from "./encoding.js";
 
 type Hex = `0x${string}`;
 type SignMessageReturnType = Hex | Uint8Array;
@@ -32,25 +33,25 @@ export const createUser = (key: string): User => {
 
 export const createSigner = (key: string): Signer => {
   const sanitizedKey = key.startsWith("0x") ? key : `0x${key}`;
-  const user = createUser(sanitizedKey);
-  const address = user.account.address.toLowerCase();
+  const wallet = new Wallet(sanitizedKey);
+  const address = wallet.address.toLowerCase();
   
-  return {
+  const signer: Signer = {
     type: "EOA" as const,
-    async signMessage(message: string): Promise<Uint8Array> {
-      const signature = await user.wallet.signMessage({
-        message,
-        account: user.account,
-      });
+    signMessage: async (message: string) => {
+      const signature = await wallet.signMessage(message);
       return toBytes(signature);
     },
-    async getIdentifier() {
-      return {
-        identifierKind: IdentifierKind.Ethereum,
+    getIdentifier: async () => {
+      const result = {
+        identifierKind: IdentifierKind.Ethereum as const,
         identifier: address
       };
+      return result;
     }
   };
+  
+  return signer;
 };
 
 /**

@@ -2,10 +2,11 @@ import { getRandomValues } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fromString, toString } from "uint8arrays";
+import { Wallet } from "ethers";
+import { toBytes } from "./encoding.js";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
-import { toBytes } from "./encoding.js";
 export const createUser = (key) => {
     const account = privateKeyToAccount(key);
     return {
@@ -20,24 +21,23 @@ export const createUser = (key) => {
 };
 export const createSigner = (key) => {
     const sanitizedKey = key.startsWith("0x") ? key : `0x${key}`;
-    const user = createUser(sanitizedKey);
-    const address = user.account.address.toLowerCase();
-    return {
+    const wallet = new Wallet(sanitizedKey);
+    const address = wallet.address.toLowerCase();
+    const signer = {
         type: "EOA",
-        async signMessage(message) {
-            const signature = await user.wallet.signMessage({
-                message,
-                account: user.account,
-            });
+        signMessage: async (message) => {
+            const signature = await wallet.signMessage(message);
             return toBytes(signature);
         },
-        async getIdentifier() {
-            return {
+        getIdentifier: async () => {
+            const result = {
                 identifierKind: 0 /* IdentifierKind.Ethereum */,
                 identifier: address
             };
+            return result;
         }
     };
+    return signer;
 };
 /**
  * Generate a random encryption key
