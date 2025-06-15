@@ -92,13 +92,14 @@ export const getEncryptionKeyFromHex = (hex: string) => {
 };
 
 export const getDbPath = (description: string = "xmtp") => {
-  // Render provides a persistent disk at /data. We'll default to a local path for development.
+  // Render provides a persistent disk at /data for paid plans, but we can use a local path.
+  // We default to a local path for development and free-tier compatibility.
   const volumePath = process.env.RENDER_DISK_PATH || ".xmtp/data";
   // Create database directory if it doesn't exist
   if (!fs.existsSync(volumePath)) {
     fs.mkdirSync(volumePath, { recursive: true });
   }
-  const dbPath = path.join(volumePath, `${description}.db3`);
+  const dbPath = path.join(volumePath, description);
   console.log(`Using database path: ${dbPath}`);
   return dbPath;
 };
