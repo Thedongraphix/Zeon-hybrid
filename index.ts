@@ -3,6 +3,7 @@ import express, { Request, Response } from "express";
 import { ethers } from "ethers";
 import { z } from "zod";
 import * as fs from "fs";
+import cors from "cors";
 
 // XMTP and LangChain/AgentKit related imports
 import { Client, DecodedMessage, type Conversation, type XmtpEnv } from "@xmtp/node-sdk";
@@ -179,7 +180,8 @@ async function initializeXmtpClient() {
     const xmtp = await Client.create(signer, {
         env: XMTP_ENV as XmtpEnv,
     });
-    console.log(`🔥 XMTP client created for ${(xmtp as any).address}`);
+    const identifier = await signer.getIdentifier();
+    console.log(`🔥 XMTP client created for ${identifier.identifier}`);
     return xmtp;
 }
 
@@ -240,6 +242,7 @@ export const handleApiRequest = async (req: Request, res: Response) => {
 
 const app = express();
 app.use(express.json());
+app.use(cors());
 app.post("/api/message", handleApiRequest);
 app.get("/", (req, res) => res.send("Zeon Hybrid Agent is running!"));
 

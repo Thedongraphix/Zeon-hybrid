@@ -1,4 +1,6 @@
-
+dist
 node_modules
 .env
-dist
+*.db3
+*.db3-shm
+*.db3-wal
