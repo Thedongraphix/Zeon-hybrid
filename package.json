@@ -7,7 +7,8 @@
   "scripts": {
     "compile-contract": "tsx compile-contract.ts",
     "build": "yarn compile-contract && tsc && cp -r helpers dist/helpers",
-    "start": "node dist/index.js",
+    "start": "node dist/index.js api",
+    "worker": "node dist/index.js worker",
     "dev": "tsx --watch index.ts"
   },
   "dependencies": {

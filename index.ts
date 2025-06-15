@@ -249,25 +249,31 @@ app.get("/", (req, res) => res.send("Zeon Hybrid Agent is running!"));
 
 // --- Main Application Start ---
 async function main() {
-    // Start the API server first to respond to health checks
+    // Start the API server immediately. The callback will be executed once the server is live.
     const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-        console.log(`✅ API Server listening on port ${PORT}`);
-    });
+    app.listen(PORT, async () => {
+        console.log(`✅ API Server listening on port ${PORT}. Service is live.`);
+        
+        // Now, initialize the XMTP client and start the listener in the background.
+        console.log("🚀 Initializing XMTP client in the background...");
+        try {
+            const xmtpClient = await initializeXmtpClient();
+            console.log("✅ XMTP client initialized successfully.");
 
-    // Then, initialize the XMTP client and start the listener
-    console.log("🚀 Initializing XMTP client...");
-    const xmtpClient = await initializeXmtpClient();
-    
-    // Start the listener immediately so the agent is responsive
-    startXmtpListener(xmtpClient).catch(err => {
-        console.error("XMTP Listener crashed:", err);
-        process.exit(1);
-    });
+            // Start the listener. This will run indefinitely.
+            startXmtpListener(xmtpClient).catch(err => {
+                console.error("XMTP Listener crashed:", err);
+                // We'll log the error but not exit, to keep the API alive.
+            });
 
-    // Log details in the background without blocking startup
-    logAgentDetails(xmtpClient).catch(err => {
-        console.warn("Could not log agent details:", err);
+            // Log agent details without blocking.
+            logAgentDetails(xmtpClient).catch(err => {
+                console.warn("Could not log agent details:", err);
+            });
+
+        } catch (err) {
+            console.error("🚨 Failed to initialize XMTP client:", err);
+        }
     });
 }
 
