@@ -58,25 +58,37 @@ export const generateQRCode = async (
   }
 };
 
-// Wallet Contribution QR Code - FIXED
+// Wallet Contribution QR Code - FIXED & STYLED
 export const generateContributionQR = async (
   walletAddress: string, 
   amount: string, 
   fundraiserName: string
 ): Promise<string> => {
-  // Convert ETH amount to Wei for EIP-681 format
-  const amountInWei = ethers.parseEther(amount).toString();
-  // EIP-681 format for wallet compatibility
-  const paymentData = `ethereum:${walletAddress}?value=${amountInWei}`;
-  const description = `Contribution QR Code`;
-  
-  const qrCode = await generateQRCode(paymentData, description);
-  
-  return `Here is the QR code for contributing ${amount} ETH to the fundraiser for "${fundraiserName}":
+  try {
+    const amountInWei = ethers.parseEther(amount).toString();
+    const paymentData = `ethereum:${walletAddress}?value=${amountInWei}`;
+    const description = `Contribution to ${fundraiserName}`;
+    
+    const qrCode = await generateQRCode(paymentData, description);
+    
+    return `
+Here is the QR code for contributing **${amount} ETH** to the fundraiser for **"${fundraiserName}"**:
 
 ${qrCode}
 
-You can scan this with your mobile wallet to contribute.`;
+You can scan this with your mobile wallet to contribute.
+
+---
+💰 **Payment Details:**
+- **Amount**: ${amount} ETH
+- **Recipient**: \`${walletAddress}\`
+`;
+  } catch (error: any) {
+    console.error('Error generating contribution QR:', error);
+    return `❌ **QR Code Generation Failed**
+I was unable to create the QR code for this contribution. Please try again.
+*Error: ${error.message}*`;
+  }
 };
 
 // Contract Interaction QR Code
@@ -104,7 +116,7 @@ ${qrCode}
 Contract Address: \`${contractAddress}\``;
 };
 
-// Transaction Response Formatting
+// Transaction Response Formatting - STYLED
 export const formatTransactionResponse = (
   txHash: string,
   action: string,
@@ -118,32 +130,32 @@ export const formatTransactionResponse = (
   }
 ): string => {
   if (!isValidTxHash(txHash)) {
-    throw new Error('Invalid transaction hash format');
+    return `❌ **Invalid Transaction Hash**
+The transaction hash \`${txHash}\` appears to be invalid.`;
   }
 
   const scanLink = generateBaseScanLink(txHash, 'tx');
-  const shortHash = `${txHash.slice(0, 10)}...${txHash.slice(-8)}`;
+  const shortHash = `${txHash.slice(0, 6)}...${txHash.slice(-4)}`;
   
-  let response = `✅ ${action} completed successfully!
+  let response = `✅ **${action} Successful!**
 
-**Transaction Hash:** \`${txHash}\`
-
-🔍 **View on Base Sepolia Scan:** [${shortHash}](${scanLink})`;
+🔗 **Transaction Hash:** \`${txHash}\`
+   [View on Base Sepolia Scan](${scanLink})`;
 
   if (details) {
-    response += `\n\n**Transaction Details:**`;
-    if (details.blockNumber) response += `\n- **Block Number:** ${details.blockNumber}`;
-    if (details.gasUsed) response += `\n- **Gas Used:** ${details.gasUsed}`;
-    if (details.gasPrice) response += `\n- **Gas Price:** ${details.gasPrice} gwei`;
-    if (details.from) response += `\n- **From:** \`${details.from}\``;
-    if (details.to) response += `\n- **To:** \`${details.to}\``;
-    if (details.value) response += `\n- **Value:** ${details.value} ETH`;
+    response += `\n\n📋 **Transaction Details:**`;
+    if (details.blockNumber) response += `\n- **Block Number**: ${details.blockNumber}`;
+    if (details.gasUsed) response += `\n- **Gas Used**: ${details.gasUsed}`;
+    if (details.gasPrice) response += `\n- **Gas Price**: ${details.gasPrice} gwei`;
+    if (details.from) response += `\n- **From**: \`${details.from}\``;
+    if (details.to) response += `\n- **To**: \`${details.to}\``;
+    if (details.value) response += `\n- **Value**: ${details.value} ETH`;
   }
 
   return response;
 };
 
-// NEW: Deployment Response Formatter - PREVENTS INCORRECT LINKS
+// NEW: Deployment Response Formatter - STYLED
 export const formatDeployResponse = (
   contractAddress: string,
   txHash: string,
@@ -153,18 +165,29 @@ export const formatDeployResponse = (
 ): string => {
   const contractUrl = generateBaseScanLink(contractAddress, 'address');
   const txUrl = generateBaseScanLink(txHash, 'tx');
+  const shortContract = `${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}`;
+  const shortTx = `${txHash.slice(0, 6)}...${txHash.slice(-4)}`;
 
-  return `🎉 Fundraiser "${fundraiserName}" created successfully!
+  return `
+🎉 **Fundraiser "${fundraiserName}" is Live!**
 
-**Contract Address:** \`${contractAddress}\`
-[View on Base Sepolia Scan](${contractUrl})
+Your new fundraising contract has been successfully deployed to the Base Sepolia network.
 
-**Transaction Hash:** \`${txHash}\`
-[View on Base Sepolia Scan](${txUrl})
+---
 
-**Fundraising Goal:** ${goalAmount} ETH
+📄 **Contract Address:** 
+[\`${shortContract}\`](${contractUrl})
+
+🔗 **Transaction Hash:** 
+[\`${shortTx}\`](${txUrl})
+
+🎯 **Fundraising Goal:** 
+**${goalAmount} ETH**
+
+---
 
 ${qrCode}
 
-Share this QR code for easy contributions to your fundraiser!`;
+🚀 You can now share this QR code to start accepting contributions!
+  `;
 }; 
