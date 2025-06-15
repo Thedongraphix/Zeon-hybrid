@@ -59,31 +59,11 @@ export const generateContributionQR = async (
   amount: string, 
   fundraiserName: string
 ): Promise<string> => {
-  try {
-    const amountInWei = ethers.parseEther(amount).toString();
-    const paymentData = `ethereum:${walletAddress}?value=${amountInWei}`;
-    const description = `Contribution to ${fundraiserName}`;
-    
-    const qrCode = await generateQRCode(paymentData, description);
-    
-    return `
-Here is the QR code for contributing **${amount} ETH** to the fundraiser for **"${fundraiserName}"**:
-
-${qrCode}
-
-You can scan this with your mobile wallet to contribute.
-
----
-💰 **Payment Details:**
-- **Amount**: ${amount} ETH
-- **Recipient**: \`${walletAddress}\`
-`;
-  } catch (error: any) {
-    console.error('Error generating contribution QR:', error);
-    return `❌ **QR Code Generation Failed**
-I was unable to create the QR code for this contribution. Please try again.
-*Error: ${error.message}*`;
-  }
+  const amountInWei = ethers.parseEther(amount).toString();
+  const paymentData = `ethereum:${walletAddress}?value=${amountInWei}`;
+  const description = `QR Code for ${fundraiserName} Contribution`;
+  
+  return generateQRCode(paymentData, description);
 };
 
 // Contract Interaction QR Code
@@ -160,29 +140,21 @@ export const formatDeployResponse = (
 ): string => {
   const contractUrl = generateBaseScanLink(contractAddress, 'address');
   const txUrl = generateBaseScanLink(txHash, 'tx');
-  const shortContract = `${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}`;
-  const shortTx = `${txHash.slice(0, 6)}...${txHash.slice(-4)}`;
 
-  return `
-🎉 **Fundraiser "${fundraiserName}" is Live!**
+  return `🎉 **Fundraiser "${fundraiserName}" is Live!**
 
-Your new fundraising contract has been successfully deployed to the Base Sepolia network.
+Your new fundraising contract has been deployed.
 
----
-
-📄 **Contract Address:** 
-[\`${shortContract}\`](${contractUrl})
-
-🔗 **Transaction Hash:** 
-[\`${shortTx}\`](${txUrl})
-
-🎯 **Fundraising Goal:** 
-**${goalAmount} ETH**
+**Details:**
+- **Name:** ${fundraiserName}
+- **Goal:** ${goalAmount} ETH
+- **Contract:** [${contractAddress}](${contractUrl})
+- **Transaction:** [${txHash}](${txUrl})
 
 ---
 
+**Scan to Contribute**
 ${qrCode}
 
-🚀 You can now share this QR code to start accepting contributions!
-  `;
+Share this QR code or the contract link to receive contributions.`;
 }; 

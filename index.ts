@@ -187,7 +187,10 @@ async function initializeXmtpClient() {
 
 async function handleXmtpMessage(message: DecodedMessage, client: Client<any>) {
     const senderAddress = (message as any).senderAddress;
-    if (senderAddress.toLowerCase() === (client as any).address.toLowerCase()) return;
+
+    if (!senderAddress || senderAddress.toLowerCase() === (client as any).address.toLowerCase()) {
+        return;
+    }
 
     if (typeof (message as any).content !== 'string' || (message as any).content.trim() === "") {
         console.log(`Skipping non-text message from ${senderAddress}`);
