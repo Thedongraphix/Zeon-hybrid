@@ -180,7 +180,6 @@ async function initializeXmtpClient() {
     const xmtp = await Client.create(signer, {
         env: XMTP_ENV as XmtpEnv,
     });
-    await logAgentDetails(xmtp);
     return xmtp;
 }
 
@@ -250,15 +249,25 @@ app.get("/", (req, res) => res.send("Zeon Hybrid Agent is running!"));
 
 // --- Main Application Start ---
 async function main() {
+    // Start the API server first to respond to health checks
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+        console.log(`✅ API Server listening on port ${PORT}`);
+    });
+
+    // Then, initialize the XMTP client and start the listener
+    console.log("🚀 Initializing XMTP client...");
     const xmtpClient = await initializeXmtpClient();
+    
+    // Start the listener immediately so the agent is responsive
     startXmtpListener(xmtpClient).catch(err => {
         console.error("XMTP Listener crashed:", err);
         process.exit(1);
     });
 
-    const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-        console.log(`✅ API Server listening on port ${PORT}`);
+    // Log details in the background without blocking startup
+    logAgentDetails(xmtpClient).catch(err => {
+        console.warn("Could not log agent details:", err);
     });
 }
 
