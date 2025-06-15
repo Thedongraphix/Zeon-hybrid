@@ -21,7 +21,7 @@ import {
   generateContributionQR,
   formatDeployResponse,
 } from "./utils/blockchain.js";
-import { createSigner } from "./helpers/client.js";
+import { createSigner, logAgentDetails } from "./helpers/client.js";
 
 // --- Pre-compile contract to avoid doing it on every request ---
 import sbt from "./helpers/CrowdFund.json" with { type: "json" };
@@ -180,8 +180,7 @@ async function initializeXmtpClient() {
     const xmtp = await Client.create(signer, {
         env: XMTP_ENV as XmtpEnv,
     });
-    const identifier = await signer.getIdentifier();
-    console.log(`🔥 XMTP client created for ${identifier.identifier}`);
+    await logAgentDetails(xmtp);
     return xmtp;
 }
 
@@ -259,7 +258,7 @@ async function main() {
 
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
-        console.log(`🚀 Server listening on port ${PORT}`);
+        console.log(`✅ API Server listening on port ${PORT}`);
     });
 }
 
