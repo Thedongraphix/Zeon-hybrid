@@ -29,36 +29,36 @@ export const isValidAddress = (address: string): boolean => {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
 };
 
-// Core QR Code Generation Function - IMPROVED
+// Core QR Code Generation Function - PNG FORMAT FOR WALLET COMPATIBILITY
 export const generateQRCode = async (
   data: string, 
   description: string = "QR Code"
 ): Promise<string> => {
   try {
-    // Generate QR code as SVG for crisp display
-    const qrSvg = await QRCode.toString(data, {
-      type: 'svg',
-      width: 256,
-      margin: 4, // Increased margin for better scannability
+    // Generate QR code as PNG for maximum wallet compatibility
+    const qrPngBuffer = await QRCode.toBuffer(data, {
+      type: 'png',
+      width: 300,
+      margin: 4,
       color: {
         dark: '#000000',
         light: '#FFFFFF'
       },
-      errorCorrectionLevel: 'H' // High error correction for better reliability
+      errorCorrectionLevel: 'H' // High error correction for reliability
     });
     
-    // Convert SVG to base64
-    const base64Data = Buffer.from(qrSvg).toString('base64');
+    // Convert PNG buffer to base64
+    const base64Data = qrPngBuffer.toString('base64');
     
     // Return in markdown format for frontend detection
-    return `![${description}](data:image/svg+xml;base64,${base64Data})`;
+    return `![${description}](data:image/png;base64,${base64Data})`;
   } catch (error) {
     console.error('QR code generation failed:', error);
     return `[QR Code Generation Failed: ${description}]`;
   }
 };
 
-// Wallet Contribution QR Code - FIXED & STYLED
+// Wallet Contribution QR Code - ENHANCED WITH EMOJIS & PNG FORMAT
 export const generateContributionQR = async (
   walletAddress: string, 
   amount: string, 
@@ -67,21 +67,29 @@ export const generateContributionQR = async (
   try {
     const amountInWei = ethers.parseEther(amount).toString();
     const paymentData = `ethereum:${walletAddress}?value=${amountInWei}`;
-    const description = `Contribution to ${fundraiserName}`;
+    const description = `Contribution QR for ${fundraiserName}`;
     
     const qrCode = await generateQRCode(paymentData, description);
+    const contractLink = generateBaseScanLink(walletAddress, 'address');
+    const shortAddress = `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
     
     return `
-Here is the QR code for contributing **${amount} ETH** to the fundraiser for **"${fundraiserName}"**:
+📱 **Scan to Contribute ${amount} ETH**
 
 ${qrCode}
 
-You can scan this with your mobile wallet to contribute.
+🎯 **Fundraiser:** ${fundraiserName}
+💰 **Amount:** ${amount} ETH
+📍 **Contract:** [${shortAddress}](${contractLink})
 
 ---
-💰 **Payment Details:**
-- **Amount**: ${amount} ETH
-- **Recipient**: \`${walletAddress}\`
+✨ **How to Contribute:**
+1. 📱 Open your mobile wallet (MetaMask, Trust Wallet, etc.)
+2. 📷 Scan the QR code above
+3. ✅ Confirm the transaction
+4. 🎉 You're supporting ${fundraiserName}!
+
+💡 **Tip:** Make sure you're connected to Base Sepolia network
 `;
   } catch (error: any) {
     console.error('Error generating contribution QR:', error);
@@ -155,7 +163,7 @@ The transaction hash \`${txHash}\` appears to be invalid.`;
   return response;
 };
 
-// NEW: Deployment Response Formatter - STYLED
+// NEW: Deployment Response Formatter - ENHANCED WITH EMOJIS
 export const formatDeployResponse = (
   contractAddress: string,
   txHash: string,
@@ -169,25 +177,29 @@ export const formatDeployResponse = (
   const shortTx = `${txHash.slice(0, 6)}...${txHash.slice(-4)}`;
 
   return `
-🎉 **Fundraiser "${fundraiserName}" is Live!**
+🎉 **"${fundraiserName}" Fundraiser is Live!**
 
-Your new fundraising contract has been successfully deployed to the Base Sepolia network.
+Your fundraising smart contract has been successfully deployed on Base Sepolia! 🚀
 
 ---
 
-📄 **Contract Address:** 
-[\`${shortContract}\`](${contractUrl})
-
-🔗 **Transaction Hash:** 
-[\`${shortTx}\`](${txUrl})
-
-🎯 **Fundraising Goal:** 
-**${goalAmount} ETH**
+📋 **Fundraiser Details:**
+🎯 **Goal:** ${goalAmount} ETH
+📄 **Contract:** [${shortContract}](${contractUrl})
+🔗 **Transaction:** [${shortTx}](${txUrl})
+🌐 **Network:** Base Sepolia
 
 ---
 
 ${qrCode}
 
-🚀 You can now share this QR code to start accepting contributions!
+---
+
+🚀 **Next Steps:**
+1. 📱 Share the QR code with potential contributors
+2. 📊 Monitor contributions on [Base Sepolia Scan](${contractUrl})
+3. 💬 Spread the word about your cause!
+
+💡 **Pro Tip:** Contributors need Base Sepolia ETH. They can get it from faucets like [Base Sepolia Faucet](https://bridge.base.org/deposit).
   `;
 }; 
