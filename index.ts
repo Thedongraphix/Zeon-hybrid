@@ -67,6 +67,10 @@ interface AgentConfig {
 
 type Agent = ReturnType<typeof createReactAgent>;
 
+// NEW: Agent will be initialized in the background after the server starts.
+// This is to prevent Render health check timeouts.
+let agent: Awaited<ReturnType<typeof startAgent>> | null = null;
+
 // Ensure storage directories exist
 function ensureLocalStorage() {
   // NOTE: Using fs for storage is not suitable for Render's ephemeral filesystem.
@@ -545,15 +549,25 @@ async function main() {
   app.use(cors());
 
   app.get('/', (req, res) => {
-    res.send('✅ Zeon AI Agent is running!');
+    // Return a status indicating if the agent is ready
+    const status = agent 
+      ? '✅ Zeon AI Agent is running and ready!' 
+      : '🟡 Zeon AI Agent is initializing... please wait.';
+    res.send(status);
   });
   
-  const agent = await startAgent();
+  // Agent is now initialized in the background after server starts
+  // const agent = await startAgent();
 
   app.post('/api/message', async (req, res) => {
     const { message, sessionId } = req.body;
     if (!message || !sessionId) {
       return res.status(400).send({ error: 'Message and sessionId are required' });
+    }
+    
+    // Return 503 if agent isn't ready yet
+    if (!agent) {
+      return res.status(503).send({ error: 'Service Unavailable: Agent is initializing. Please try again in a moment.' });
     }
     
     try {
@@ -565,9 +579,20 @@ async function main() {
     }
   });
 
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => {
-    console.log(`✅ API Server is live on port ${PORT}`);
+    const PORT = process.env.PORT || 10000;
+    app.listen(PORT, () => {
+      console.log(`✅ API Server is live on port ${PORT}. Health checks should pass.`);
+      
+      // Now, initialize the agent in the background.
+      console.log('⏳ Starting agent initialization in the background...');
+      startAgent()
+        .then(initializedAgent => {
+          agent = initializedAgent;
+          console.log('✅ Agent is fully initialized and ready to handle requests.');
+        })
+        .catch(err => {
+          console.error('❌ FATAL: Agent initialization failed. The API will not be able to process messages.', err);
+        });
   });
 }
 
@@ -576,4 +601,5 @@ main().catch((error) => {
   process.exit(1);
 });
 
-export { startAgent, handleMessage };
+// No longer needed
+// export { startAgent, handleMessage };
