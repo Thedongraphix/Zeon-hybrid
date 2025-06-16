@@ -142,7 +142,7 @@ async function initializeSharedComponents() {
   
   llm = new ChatOpenAI({
       modelName: "gpt-3.5-turbo",
-      temperature: 0.7,
+      temperature: 0.3, // Lower temperature for more consistent tool usage
       maxRetries: 3,
       configuration: {
         baseURL: "https://openrouter.ai/api/v1",
@@ -183,53 +183,71 @@ I encountered an error while generating the QR code: ${e.message}`;
 
     // Deploy Fundraiser Tool - STYLED
     const deployFundraiserTool = new DynamicStructuredTool({
-      name: "deploy_fundraiser_contract",
-      description: "Deploys a new fundraising smart contract",
+      name: "deploy_fundraiser_contract", 
+      description: "Deploys a new fundraising smart contract and returns the contract address, transaction hash, and QR code for contributions. Use this tool when users want to create or deploy a fundraiser.",
       schema: z.object({
-        beneficiaryAddress: z.string(),
-        goalAmount: z.string(),
-        durationInSeconds: z.string(),
-        fundraiserName: z.string().optional().default("My Fundraiser")
+        beneficiaryAddress: z.string().describe("The Ethereum address that will receive the funds"),
+        goalAmount: z.string().describe("The fundraising goal amount in ETH (e.g., '0.5')"),
+        durationInSeconds: z.string().describe("Duration of the fundraiser in seconds (e.g., '2592000' for 30 days)"),
+        fundraiserName: z.string().optional().default("My Fundraiser").describe("Name of the fundraiser")
       }),
       func: async (input: { beneficiaryAddress: string; goalAmount: string; durationInSeconds: string; fundraiserName?: string; }) => {
         try {
+          console.log("🚀 Deploy fundraiser tool called with:", input);
           const { beneficiaryAddress, goalAmount, durationInSeconds, fundraiserName = "My Fundraiser" } = input;
 
           if (!isValidAddress(beneficiaryAddress)) {
+            console.log("❌ Invalid beneficiary address:", beneficiaryAddress);
             return `❌ **Invalid Address**
 The beneficiary address \`${beneficiaryAddress}\` is not valid. Please check and try again.`;
           }
+
+          console.log("📋 Deploying contract with params:", { beneficiaryAddress, goalAmount, durationInSeconds, fundraiserName });
 
           const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
           const wallet = new ethers.Wallet(WALLET_KEY!, provider);
           const factory = new ethers.ContractFactory(contractAbi, contractBytecode, wallet);
 
           const goalInWei = ethers.parseEther(goalAmount);
+          console.log("💰 Goal in Wei:", goalInWei.toString());
+
           const deployedContract = await factory.deploy(beneficiaryAddress, goalInWei, durationInSeconds);
           const tx = deployedContract.deploymentTransaction();
           if (!tx) throw new Error("Deployment transaction could not be created.");
           
+          console.log("⏳ Waiting for deployment...");
           await deployedContract.waitForDeployment();
           const contractAddress = await deployedContract.getAddress();
+          
+          console.log("✅ Contract deployed at:", contractAddress);
+          console.log("🔗 Transaction hash:", tx.hash);
 
+          console.log("📱 Generating QR code...");
           const contributionQR = await generateContributionQR(
             contractAddress,
             "0.01", // Default contribution amount for the QR code
             fundraiserName
           );
 
-          return formatDeployResponse(
+          console.log("📋 Formatting deployment response...");
+          const response = formatDeployResponse(
             contractAddress,
             tx.hash,
             fundraiserName,
             goalAmount,
             contributionQR
           );
+
+          console.log("✅ Deploy tool response generated successfully");
+          return response;
         } catch (e: any) {
-          console.error("Error deploying contract:", e);
+          console.error("❌ Error deploying contract:", e);
+          console.error("📊 Full error details:", e.stack);
           return `❌ **Contract Deployment Failed**
 I was unable to deploy the contract. Please ensure your wallet has enough funds and the parameters are correct.
-*Error: ${e.message}*`;
+*Error: ${e.message}*
+
+*Debug info: Please check the server logs for more details.*`;
         }
       },
     });
@@ -429,9 +447,15 @@ async function processMessage(
       messages: BaseMessage[];
     };
 
+    // Log all messages in the response for debugging
+    console.log(`📊 Response has ${response.messages.length} messages`);
+    response.messages.forEach((msg, index) => {
+      console.log(`📝 Message ${index}: ${msg.constructor.name} - ${JSON.stringify(msg.content).slice(0, 100)}...`);
+    });
+
     const responseContent =
       response.messages[response.messages.length - 1].content as string;
-    console.log(`🤖 Response generated: ${responseContent.slice(0, 100)}...`);
+    console.log(`🤖 Final response: ${responseContent.slice(0, 200)}...`);
 
     return responseContent;
   } catch (error: any) {
