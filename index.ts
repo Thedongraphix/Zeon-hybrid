@@ -48,7 +48,6 @@ const {
 
 // Storage constants
 const XMTP_STORAGE_DIR = ".data/xmtp";
-const WALLET_STORAGE_DIR = ".data/wallet";
 
 // Global stores
 const memoryStore: Record<string, MemorySaver> = {};
@@ -79,35 +78,6 @@ function ensureLocalStorage() {
   if (!fs.existsSync(XMTP_STORAGE_DIR)) {
     fs.mkdirSync(XMTP_STORAGE_DIR, { recursive: true });
   }
-  if (!fs.existsSync(WALLET_STORAGE_DIR)) {
-    fs.mkdirSync(WALLET_STORAGE_DIR, { recursive: true });
-  }
-}
-
-// Wallet storage functions
-function saveWalletData(userId: string, walletData: string) {
-  // NOTE: Using fs for storage is not suitable for Render's ephemeral filesystem.
-  const localFilePath = `${WALLET_STORAGE_DIR}/${userId}.json`;
-  try {
-    if (!fs.existsSync(localFilePath)) {
-      console.log(`💾 Wallet data saved for user ${userId}`);
-      fs.writeFileSync(localFilePath, walletData);
-    }
-  } catch (error) {
-    console.error(`Failed to save wallet data: ${error}`);
-  }
-}
-
-function getWalletData(userId: string): string | null {
-  const localFilePath = `${WALLET_STORAGE_DIR}/${userId}.json`;
-  try {
-    if (fs.existsSync(localFilePath)) {
-      return fs.readFileSync(localFilePath, "utf8");
-    }
-  } catch (error) {
-    console.warn(`Could not read wallet data: ${error}`);
-  }
-  return null;
 }
 
 // Initialize XMTP client
@@ -134,6 +104,44 @@ const contractAbi = contractArtifact.abi;
 const contractBytecode = contractArtifact.bytecode;
 // --- End pre-compilation ---
 
+// Helper function to parse amount from user input
+function parseAmountFromInput(input: string): string {
+  console.log(`🔍 Parsing amount from: "${input}"`);
+  
+  // More comprehensive patterns for various amount formats
+  const patterns = [
+    // "100 usdc worth of eth", "50 dollars worth", etc.
+    /(\d+(?:\.\d+)?)\s*(?:usdc|usd|dollars?)\s*(?:worth|of|in)\s*(?:eth)?/i,
+    // Direct ETH amounts: "0.5 ETH", "2 eth"
+    /(\d+(?:\.\d+)?)\s*eth/i,
+    // "worth X USDC", "worth X dollars"
+    /worth\s*(\d+(?:\.\d+)?)\s*(?:usdc|usd|dollars?)/i,
+    // "fundraiser for X USDC"
+    /fundraiser\s*(?:for|worth|of)\s*(\d+(?:\.\d+)?)\s*(?:usdc|usd|dollars?)/i,
+    // Just numbers followed by currency
+    /(\d+(?:\.\d+)?)\s*(?:usdc|usd|dollars?)/i,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = input.match(pattern);
+    if (match) {
+      const amount = parseFloat(match[1]);
+      console.log(`💡 Found amount: ${amount} from pattern: ${pattern}`);
+      
+      // If it's USD/USDC, convert to ETH equivalent (assuming ~$2000/ETH)
+      if (input.toLowerCase().includes('usd') || input.toLowerCase().includes('dollar')) {
+        const ethAmount = (amount / 2000).toFixed(6);
+        console.log(`💱 Converted ${amount} USD to ${ethAmount} ETH`);
+        return ethAmount;
+      }
+      return amount.toString();
+    }
+  }
+  
+  console.log(`⚠️ No amount pattern found in input`);
+  throw new Error(`Could not parse amount from: "${input}". Please specify the amount clearly (e.g., "0.1 ETH" or "100 USDC worth of ETH").`);
+}
+
 // NEW: One-time initialization of shared components
 async function initializeSharedComponents() {
   if (sharedComponentsInitialized) return;
@@ -141,8 +149,8 @@ async function initializeSharedComponents() {
   console.log("🔧 Initializing shared AI components...");
   
   llm = new ChatOpenAI({
-      modelName: "gpt-4", // Better tool calling support
-      temperature: 0.0, // Zero temperature for most literal responses
+      modelName: "gpt-4", 
+      temperature: 0.2, // Better for following instructions precisely
       maxRetries: 3,
       configuration: {
         baseURL: "https://openrouter.ai/api/v1",
@@ -181,20 +189,38 @@ I encountered an error while generating the QR code: ${e.message}`;
       },
     });
 
-    // Deploy Fundraiser Tool - STYLED
+    // Deploy Fundraiser Tool - ENHANCED
     const deployFundraiserTool = new DynamicStructuredTool({
       name: "deploy_fundraiser_contract", 
-      description: "Deploys a new fundraising smart contract and returns the contract address, transaction hash, and QR code for contributions. Use this tool when users want to create or deploy a fundraiser. CRITICAL: Return the COMPLETE output from this tool exactly as provided - do not summarize or explain.",
+      description: "Deploys a new fundraising smart contract and returns the contract address, transaction hash, and QR code for contributions. ALWAYS pass the original user message in originalUserInput for proper amount parsing. Extract goal amount from user input and convert USD/USDC to ETH. For '30 days' duration, use 2592000 seconds. Return the COMPLETE output exactly as provided.",
       schema: z.object({
         beneficiaryAddress: z.string().describe("The Ethereum address that will receive the funds"),
-        goalAmount: z.string().describe("The fundraising goal amount in ETH (e.g., '0.5')"),
-        durationInSeconds: z.string().describe("Duration of the fundraiser in seconds (e.g., '2592000' for 30 days)"),
-        fundraiserName: z.string().optional().default("My Fundraiser").describe("Name of the fundraiser")
+        goalAmount: z.string().describe("The fundraising goal amount in ETH - extract from user input and convert if needed"),
+        durationInSeconds: z.string().describe("Duration of the fundraiser in seconds (30 days = 2592000 seconds)"),
+        fundraiserName: z.string().optional().default("Fundraiser").describe("Name/purpose of the fundraiser extracted from user input"),
+        originalUserInput: z.string().optional().describe("The original user message to help with amount parsing")
       }),
-      func: async (input: { beneficiaryAddress: string; goalAmount: string; durationInSeconds: string; fundraiserName?: string; }) => {
+      func: async (input: { beneficiaryAddress: string; goalAmount: string; durationInSeconds: string; fundraiserName?: string; originalUserInput?: string; }) => {
         try {
           console.log("🚀 Deploy fundraiser tool called with:", input);
-          const { beneficiaryAddress, goalAmount, durationInSeconds, fundraiserName = "My Fundraiser" } = input;
+          const { beneficiaryAddress, goalAmount, durationInSeconds, fundraiserName = "Fundraiser", originalUserInput } = input;
+          
+          // Always use the original user input for better amount parsing
+          let finalGoalAmount = goalAmount;
+          if (originalUserInput) {
+            const parsedAmount = parseAmountFromInput(originalUserInput);
+            finalGoalAmount = parsedAmount;
+            console.log(`💡 Using parsed amount: ${parsedAmount} ETH from "${originalUserInput}"`);
+                     } else {
+             // Also try parsing from the goalAmount parameter
+             try {
+               const parsedFromGoal = parseAmountFromInput(goalAmount);
+               finalGoalAmount = parsedFromGoal;
+             } catch (error) {
+               console.log(`⚠️ Could not parse amount from goalAmount parameter: ${goalAmount}`);
+               // Keep the original goalAmount if parsing fails
+             }
+           }
 
           if (!isValidAddress(beneficiaryAddress)) {
             console.log("❌ Invalid beneficiary address:", beneficiaryAddress);
@@ -202,13 +228,13 @@ I encountered an error while generating the QR code: ${e.message}`;
 The beneficiary address \`${beneficiaryAddress}\` is not valid. Please check and try again.`;
           }
 
-          console.log("📋 Deploying contract with params:", { beneficiaryAddress, goalAmount, durationInSeconds, fundraiserName });
+          console.log("📋 Deploying contract with params:", { beneficiaryAddress, finalGoalAmount, durationInSeconds, fundraiserName });
 
           const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
           const wallet = new ethers.Wallet(WALLET_KEY!, provider);
           const factory = new ethers.ContractFactory(contractAbi, contractBytecode, wallet);
 
-          const goalInWei = ethers.parseEther(goalAmount);
+          const goalInWei = ethers.parseEther(finalGoalAmount);
           console.log("💰 Goal in Wei:", goalInWei.toString());
 
           const deployedContract = await factory.deploy(beneficiaryAddress, goalInWei, durationInSeconds);
@@ -223,9 +249,12 @@ The beneficiary address \`${beneficiaryAddress}\` is not valid. Please check and
           console.log("🔗 Transaction hash:", tx.hash);
 
           console.log("📱 Generating QR code...");
+          // Use 1% of goal amount as suggested contribution, with a minimum of 0.001 ETH and maximum of 0.1 ETH
+          const goalInEth = parseFloat(finalGoalAmount);
+          const suggestedAmount = Math.max(0.001, Math.min(0.1, goalInEth * 0.01));
           const contributionQR = await generateContributionQR(
             contractAddress,
-            "0.01", // Default contribution amount for the QR code
+            suggestedAmount.toString(),
             fundraiserName
           );
 
@@ -234,7 +263,7 @@ The beneficiary address \`${beneficiaryAddress}\` is not valid. Please check and
             contractAddress,
             tx.hash,
             fundraiserName,
-            goalAmount,
+            finalGoalAmount,
             contributionQR
           );
 
@@ -394,7 +423,75 @@ Error: ${e.message}`;
       },
     });
 
-  tools = [deployFundraiserTool, qrCodeTool, getFundraiserContributorsTool, checkFundraiserStatusTool, checkWalletBalanceTool];
+    // NEW: Send Funds Tool - STYLED
+    const sendFundsTool = new DynamicStructuredTool({
+      name: "send_funds_to_address_or_ens",
+      description: "Sends ETH to a given address or ENS/.base name. Example: 'Send 0.1 ETH to iamchris.base.eth'. CRITICAL: Return the COMPLETE output from this tool exactly as provided.",
+      schema: z.object({
+        recipient: z.string().describe("The recipient's wallet address or ENS/.base name (e.g., 'iamchris.base.eth')"),
+        amountInEth: z.string().describe("The amount of ETH to send (e.g., '0.1')"),
+      }),
+      func: async (input: { recipient: string; amountInEth: string; }) => {
+        let { recipient, amountInEth } = input;
+        
+        // Try to parse amount if it looks like it might need conversion
+        if (amountInEth.toLowerCase().includes('usd') || amountInEth.toLowerCase().includes('dollar')) {
+          amountInEth = parseAmountFromInput(amountInEth);
+        }
+        
+        console.log(`💸 Attempting to send ${amountInEth} ETH to ${recipient}`);
+
+        try {
+          const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
+          const wallet = new ethers.Wallet(WALLET_KEY!, provider);
+          
+          let targetAddress: string | null = null;
+
+          // Check if it's a potential ENS/.base name or a regular address
+          if (recipient.includes('.')) {
+            console.log(`🔍 Resolving ENS/base name: ${recipient}`);
+            targetAddress = await provider.resolveName(recipient);
+            if (!targetAddress) {
+              return `❌ Name Not Found
+I could not resolve the name \`${recipient}\`. Please ensure it's a valid and registered ENS or .base name on the correct network.`;
+            }
+            console.log(`✅ Resolved ${recipient} to ${targetAddress}`);
+          } else if (isValidAddress(recipient)) {
+            targetAddress = recipient;
+          } else {
+            return `❌ Invalid Recipient
+The recipient \`${recipient}\` is not a valid wallet address or ENS/.base name. Please check and try again.`;
+          }
+
+          console.log(`📤 Preparing transaction to ${targetAddress} for ${amountInEth} ETH...`);
+          const tx = {
+            to: targetAddress,
+            value: ethers.parseEther(amountInEth),
+          };
+
+          const txResponse = await wallet.sendTransaction(tx);
+          console.log(`⏳ Transaction sent with hash: ${txResponse.hash}. Waiting for confirmation...`);
+          await txResponse.wait(); // Wait for 1 confirmation
+          console.log(`✅ Transaction confirmed!`);
+
+          return formatTransactionResponse(txResponse.hash, "Send Funds", {
+            from: wallet.address,
+            to: targetAddress,
+            value: amountInEth,
+          });
+        } catch (e: any) {
+          console.error("❌ Error sending funds:", e);
+          if (e.message.includes("insufficient funds")) {
+            return `❌ Insufficient Funds
+The wallet does not have enough ETH to complete this transaction (including gas fees).`;
+          }
+          return `❌ Transaction Failed
+I encountered an error while trying to send the funds: ${e.message}`;
+        }
+      },
+    });
+
+  tools = [deployFundraiserTool, qrCodeTool, getFundraiserContributorsTool, checkFundraiserStatusTool, checkWalletBalanceTool, sendFundsTool];
   sharedComponentsInitialized = true;
   console.log("✅ Shared components initialized");
 }
