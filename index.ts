@@ -576,7 +576,8 @@ async function main() {
   // Agent is now initialized in the background after server starts
   // const agent = await startAgent();
 
-  app.post('/api/message', async (req, res) => {
+  // Chat endpoint handler function
+  const handleChatRequest = async (req: any, res: any) => {
     const { message, sessionId } = req.body;
     if (!message || !sessionId) {
       return res.status(400).send({ error: 'Message and sessionId are required' });
@@ -594,7 +595,11 @@ async function main() {
       console.error("Error handling API message:", error);
       res.status(500).send({ error: 'Failed to process message' });
     }
-  });
+  };
+
+  // Both endpoints for compatibility
+  app.post('/api/message', handleChatRequest);
+  app.post('/api/chat', handleChatRequest);
 
     const PORT = process.env.PORT || 10000;
     app.listen(PORT, () => {
