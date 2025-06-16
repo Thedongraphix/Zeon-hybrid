@@ -141,8 +141,8 @@ async function initializeSharedComponents() {
   console.log("🔧 Initializing shared AI components...");
   
   llm = new ChatOpenAI({
-      modelName: "gpt-3.5-turbo",
-      temperature: 0.3, // Lower temperature for more consistent tool usage
+      modelName: "gpt-4", // Better tool calling support
+      temperature: 0.1, // Very low temperature for consistent tool usage
       maxRetries: 3,
       configuration: {
         baseURL: "https://openrouter.ai/api/v1",
@@ -412,8 +412,11 @@ async function initializeAgent(userId: string, client: Client): Promise<{ agent:
       configurable: { thread_id: userId },
     };
 
+    // Bind tools to the LLM for better tool calling
+    const llmWithTools = llm.bindTools(tools);
+    
     const agent = await createReactAgent({
-      llm,
+      llm: llmWithTools,
       tools,
     });
 
