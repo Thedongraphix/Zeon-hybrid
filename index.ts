@@ -142,7 +142,7 @@ async function initializeSharedComponents() {
   
   llm = new ChatOpenAI({
       modelName: "gpt-4", // Better tool calling support
-      temperature: 0.1, // Very low temperature for consistent tool usage
+      temperature: 0.0, // Zero temperature for most literal responses
       maxRetries: 3,
       configuration: {
         baseURL: "https://openrouter.ai/api/v1",
@@ -156,8 +156,8 @@ async function initializeSharedComponents() {
     
     // QR Code Generation Tool - STYLED
     const qrCodeTool = new DynamicStructuredTool({
-      name: "generate_contribution_qr_code",
-      description: "Generates a QR code for contributing to a fundraiser",
+      name: "generate_contribution_qr_code", 
+      description: "Generates a QR code for contributing to a fundraiser. IMPORTANT: Return the EXACT output from this tool without any summarization or explanation.",
       schema: z.object({
         contractAddress: z.string(),
         amountInEth: z.string(),
@@ -184,7 +184,7 @@ I encountered an error while generating the QR code: ${e.message}`;
     // Deploy Fundraiser Tool - STYLED
     const deployFundraiserTool = new DynamicStructuredTool({
       name: "deploy_fundraiser_contract", 
-      description: "Deploys a new fundraising smart contract and returns the contract address, transaction hash, and QR code for contributions. Use this tool when users want to create or deploy a fundraiser.",
+      description: "Deploys a new fundraising smart contract and returns the contract address, transaction hash, and QR code for contributions. Use this tool when users want to create or deploy a fundraiser. CRITICAL: Return the COMPLETE output from this tool exactly as provided - do not summarize or explain.",
       schema: z.object({
         beneficiaryAddress: z.string().describe("The Ethereum address that will receive the funds"),
         goalAmount: z.string().describe("The fundraising goal amount in ETH (e.g., '0.5')"),
