@@ -30,6 +30,9 @@ const agentStore = {};
 let llm;
 let tools = [];
 let sharedComponentsInitialized = false;
+// NEW: Agent will be initialized in the background after the server starts.
+// This is to prevent Render health check timeouts.
+let agent = null;
 // Ensure storage directories exist
 function ensureLocalStorage() {
     // NOTE: Using fs for storage is not suitable for Render's ephemeral filesystem.
@@ -94,8 +97,8 @@ async function initializeSharedComponents() {
         return;
     console.log("🔧 Initializing shared AI components...");
     llm = new ChatOpenAI({
-        modelName: "gpt-3.5-turbo",
-        temperature: 0.7,
+        modelName: "gpt-4", // Better tool calling support
+        temperature: 0.0, // Zero temperature for most literal responses
         maxRetries: 3,
         configuration: {
             baseURL: "https://openrouter.ai/api/v1",
@@ -109,7 +112,7 @@ async function initializeSharedComponents() {
     // QR Code Generation Tool - STYLED
     const qrCodeTool = new DynamicStructuredTool({
         name: "generate_contribution_qr_code",
-        description: "Generates a QR code for contributing to a fundraiser",
+        description: "Generates a QR code for contributing to a fundraiser. IMPORTANT: Return the EXACT output from this tool without any summarization or explanation.",
         schema: z.object({
             contractAddress: z.string(),
             amountInEth: z.string(),
@@ -119,14 +122,14 @@ async function initializeSharedComponents() {
             try {
                 const { contractAddress, amountInEth, fundraiserName } = input;
                 if (!isValidAddress(contractAddress)) {
-                    return `❌ **Invalid Address**
+                    return `❌ Invalid Address
 The contract address \`${contractAddress}\` is not valid. Please check and try again.`;
                 }
                 return await generateContributionQR(contractAddress, amountInEth, fundraiserName);
             }
             catch (e) {
                 console.error("Error in generate_contribution_qr_code tool:", e);
-                return `❌ **QR Code Error**
+                return `❌ QR Code Error
 I encountered an error while generating the QR code: ${e.message}`;
             }
         },
@@ -134,39 +137,53 @@ I encountered an error while generating the QR code: ${e.message}`;
     // Deploy Fundraiser Tool - STYLED
     const deployFundraiserTool = new DynamicStructuredTool({
         name: "deploy_fundraiser_contract",
-        description: "Deploys a new fundraising smart contract",
+        description: "Deploys a new fundraising smart contract and returns the contract address, transaction hash, and QR code for contributions. Use this tool when users want to create or deploy a fundraiser. CRITICAL: Return the COMPLETE output from this tool exactly as provided - do not summarize or explain.",
         schema: z.object({
-            beneficiaryAddress: z.string(),
-            goalAmount: z.string(),
-            durationInSeconds: z.string(),
-            fundraiserName: z.string().optional().default("My Fundraiser")
+            beneficiaryAddress: z.string().describe("The Ethereum address that will receive the funds"),
+            goalAmount: z.string().describe("The fundraising goal amount in ETH (e.g., '0.5')"),
+            durationInSeconds: z.string().describe("Duration of the fundraiser in seconds (e.g., '2592000' for 30 days)"),
+            fundraiserName: z.string().optional().default("My Fundraiser").describe("Name of the fundraiser")
         }),
         func: async (input) => {
             try {
+                console.log("🚀 Deploy fundraiser tool called with:", input);
                 const { beneficiaryAddress, goalAmount, durationInSeconds, fundraiserName = "My Fundraiser" } = input;
                 if (!isValidAddress(beneficiaryAddress)) {
-                    return `❌ **Invalid Address**
+                    console.log("❌ Invalid beneficiary address:", beneficiaryAddress);
+                    return `❌ Invalid Address
 The beneficiary address \`${beneficiaryAddress}\` is not valid. Please check and try again.`;
                 }
+                console.log("📋 Deploying contract with params:", { beneficiaryAddress, goalAmount, durationInSeconds, fundraiserName });
                 const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
                 const wallet = new ethers.Wallet(WALLET_KEY, provider);
                 const factory = new ethers.ContractFactory(contractAbi, contractBytecode, wallet);
                 const goalInWei = ethers.parseEther(goalAmount);
+                console.log("💰 Goal in Wei:", goalInWei.toString());
                 const deployedContract = await factory.deploy(beneficiaryAddress, goalInWei, durationInSeconds);
                 const tx = deployedContract.deploymentTransaction();
                 if (!tx)
                     throw new Error("Deployment transaction could not be created.");
+                console.log("⏳ Waiting for deployment...");
                 await deployedContract.waitForDeployment();
                 const contractAddress = await deployedContract.getAddress();
+                console.log("✅ Contract deployed at:", contractAddress);
+                console.log("🔗 Transaction hash:", tx.hash);
+                console.log("📱 Generating QR code...");
                 const contributionQR = await generateContributionQR(contractAddress, "0.01", // Default contribution amount for the QR code
                 fundraiserName);
-                return formatDeployResponse(contractAddress, tx.hash, fundraiserName, goalAmount, contributionQR);
+                console.log("📋 Formatting deployment response...");
+                const response = formatDeployResponse(contractAddress, tx.hash, fundraiserName, goalAmount, contributionQR);
+                console.log("✅ Deploy tool response generated successfully");
+                return response;
             }
             catch (e) {
-                console.error("Error deploying contract:", e);
-                return `❌ **Contract Deployment Failed**
+                console.error("❌ Error deploying contract:", e);
+                console.error("📊 Full error details:", e.stack);
+                return `❌ Contract Deployment Failed
 I was unable to deploy the contract. Please ensure your wallet has enough funds and the parameters are correct.
-*Error: ${e.message}*`;
+Error: ${e.message}
+
+Debug info: Please check the server logs for more details.`;
             }
         },
     });
@@ -181,7 +198,7 @@ I was unable to deploy the contract. Please ensure your wallet has enough funds 
             try {
                 const { contractAddress } = input;
                 if (!isValidAddress(contractAddress)) {
-                    return `❌ **Invalid Address**
+                    return `❌ Invalid Address
 The contract address \`${contractAddress}\` is not valid. Please check and try again.`;
                 }
                 const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
@@ -189,10 +206,10 @@ The contract address \`${contractAddress}\` is not valid. Please check and try a
                 const contributorAddresses = await fundraiserContract.getContributors();
                 const contractScanLink = generateBaseScanLink(contractAddress, 'address');
                 if (contributorAddresses.length === 0) {
-                    return `🤔 **No Contributions Yet**
+                    return `🤔 No Contributions Yet
 This fundraiser hasn't received any contributions. Be the first!
 
-🔍 **View Contract:** [${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}](${contractScanLink})`;
+🔍 View Contract: [${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}](${contractScanLink})`;
                 }
                 const contributorsWithEns = await Promise.all(contributorAddresses.map(async (address) => {
                     try {
@@ -208,21 +225,21 @@ This fundraiser hasn't received any contributions. Be the first!
                 const contributorList = contributorsWithEns.map((c) => {
                     const addressScanLink = generateBaseScanLink(c.address, 'address');
                     const shortAddress = `${c.address.slice(0, 6)}...${c.address.slice(-4)}`;
-                    return `- **${c.ensName === "N/A" ? shortAddress : c.ensName}**: [\`${shortAddress}\`](${addressScanLink})`;
+                    return `- ${c.ensName === "N/A" ? shortAddress : c.ensName}: [\`${shortAddress}\`](${addressScanLink})`;
                 }).join('\\n');
-                return `👥 **Contributors for Fundraiser**
+                return `👥 Contributors for Fundraiser
 
 Here are the amazing people who have contributed:
 ${contributorList}
 
 ---
-🔍 **View Contract:** [${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}](${contractScanLink})`;
+🔍 View Contract: [${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}](${contractScanLink})`;
             }
             catch (e) {
                 console.error("Error getting contributors:", e);
-                return `❌ **Could Not Get Contributors**
+                return `❌ Could Not Get Contributors
 I was unable to fetch the contributor list for this fundraiser.
-*Error: ${e.message}*`;
+Error: ${e.message}`;
             }
         },
     });
@@ -237,29 +254,29 @@ I was unable to fetch the contributor list for this fundraiser.
             try {
                 const { contractAddress } = input;
                 if (!isValidAddress(contractAddress)) {
-                    return `❌ **Invalid Address**
+                    return `❌ Invalid Address
 The contract address \`${contractAddress}\` is not valid. Please check and try again.`;
                 }
                 const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
                 const fundraiserContract = new ethers.Contract(contractAddress, contractAbi, provider);
                 const isActive = await fundraiserContract.isFundraiserActive();
                 const statusMessage = isActive
-                    ? "✅ **Active**: This fundraiser is currently accepting contributions."
-                    : "❌ **Ended**: This fundraiser has ended and can no longer accept contributions.";
+                    ? "✅ Active: This fundraiser is currently accepting contributions."
+                    : "❌ Ended: This fundraiser has ended and can no longer accept contributions.";
                 const contractScanLink = generateBaseScanLink(contractAddress, 'address');
                 const shortContract = `${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}`;
-                return `📊 **Fundraiser Status**
+                return `📊 Fundraiser Status
 
 ${statusMessage}
 
 ---
-🔍 **View Contract:** [\`${shortContract}\`](${contractScanLink})`;
+🔍 View Contract: [\`${shortContract}\`](${contractScanLink})`;
             }
             catch (e) {
                 console.error("Error checking fundraiser status:", e);
-                return `❌ **Could Not Check Status**
+                return `❌ Could Not Check Status
 I was unable to check the status of this fundraiser.
-*Error: ${e.message}*`;
+Error: ${e.message}`;
             }
         },
     });
@@ -274,7 +291,7 @@ I was unable to check the status of this fundraiser.
             try {
                 const { address } = input;
                 if (!isValidAddress(address)) {
-                    return `❌ **Invalid Address**
+                    return `❌ Invalid Address
 The wallet address \`${address}\` is not valid. Please check and try again.`;
                 }
                 const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
@@ -282,16 +299,16 @@ The wallet address \`${address}\` is not valid. Please check and try again.`;
                 const balanceInEth = ethers.formatEther(balance);
                 const addressScanLink = generateBaseScanLink(address, 'address');
                 const shortAddress = `${address.slice(0, 6)}...${address.slice(-4)}`;
-                return `💰 **Wallet Balance**
+                return `💰 Wallet Balance
 
-- **Address:** [\`${shortAddress}\`](${addressScanLink})
-- **Balance:** **${balanceInEth} ETH** (on Base Sepolia)`;
+- Address: [\`${shortAddress}\`](${addressScanLink})
+- Balance: ${balanceInEth} ETH (on Base Sepolia)`;
             }
             catch (e) {
                 console.error("Error checking wallet balance:", e);
-                return `❌ **Could Not Check Balance**
+                return `❌ Could Not Check Balance
 I was unable to check the balance of this wallet.
-*Error: ${e.message}*`;
+Error: ${e.message}`;
             }
         },
     });
@@ -309,8 +326,10 @@ async function initializeAgent(userId, client) {
         const agentConfig = {
             configurable: { thread_id: userId },
         };
+        // Bind tools to the LLM for better tool calling
+        const llmWithTools = llm.bindTools(tools);
         const agent = await createReactAgent({
-            llm,
+            llm: llmWithTools,
             tools,
         });
         return { agent, config: agentConfig };
@@ -329,8 +348,13 @@ async function processMessage(agent, config, message, history = []) {
             : new AIMessage(msg.content));
         messages.push(new HumanMessage(message));
         const response = (await agent.invoke({ messages }, config));
+        // Log all messages in the response for debugging
+        console.log(`📊 Response has ${response.messages.length} messages`);
+        response.messages.forEach((msg, index) => {
+            console.log(`📝 Message ${index}: ${msg.constructor.name} - ${JSON.stringify(msg.content).slice(0, 100)}...`);
+        });
         const responseContent = response.messages[response.messages.length - 1].content;
-        console.log(`🤖 Response generated: ${responseContent.slice(0, 100)}...`);
+        console.log(`🤖 Final response: ${responseContent.slice(0, 200)}...`);
         return responseContent;
     }
     catch (error) {
@@ -419,13 +443,56 @@ async function main() {
     app.use(express.json());
     app.use(cors());
     app.get('/', (req, res) => {
-        res.send('✅ Zeon AI Agent is running!');
+        // Return a status indicating if the agent is ready
+        const status = agent
+            ? '✅ Zeon AI Agent is running and ready!'
+            : '🟡 Zeon AI Agent is initializing... please wait.';
+        res.send(status);
     });
-    const agent = await startAgent();
-    app.post('/api/message', async (req, res) => {
-        const { message, sessionId } = req.body;
-        if (!message || !sessionId) {
-            return res.status(400).send({ error: 'Message and sessionId are required' });
+    // Dedicated health check endpoint with proper HTTP status codes
+    app.get('/health', (req, res) => {
+        if (agent) {
+            res.status(200).json({
+                status: 'healthy',
+                agent: 'ready',
+                timestamp: new Date().toISOString()
+            });
+        }
+        else {
+            res.status(503).json({
+                status: 'initializing',
+                agent: 'not_ready',
+                timestamp: new Date().toISOString()
+            });
+        }
+    });
+    // Agent is now initialized in the background after server starts
+    // const agent = await startAgent();
+    // Chat endpoint handler function
+    const handleChatRequest = async (req, res) => {
+        // Debug logging
+        console.log('📝 Request body:', JSON.stringify(req.body, null, 2));
+        console.log('📝 Content-Type:', req.headers['content-type']);
+        // Extract fields with fallbacks for different frontend formats
+        let { message, sessionId } = req.body;
+        // Handle different field name variations
+        message = message || req.body.text || req.body.content || req.body.query;
+        sessionId = sessionId || req.body.session_id || req.body.userId || req.body.user_id || req.body.id || 'default-session';
+        // More detailed error message
+        if (!message) {
+            return res.status(400).send({
+                error: 'message field is required (also accepts: text, content, query)',
+                received: req.body
+            });
+        }
+        // Auto-generate sessionId if still missing
+        if (!sessionId || sessionId === 'default-session') {
+            sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            console.log(`🔄 Auto-generated sessionId: ${sessionId}`);
+        }
+        // Return 503 if agent isn't ready yet
+        if (!agent) {
+            return res.status(503).send({ error: 'Service Unavailable: Agent is initializing. Please try again in a moment.' });
         }
         try {
             const response = await agent.handleMessage(message, sessionId);
@@ -435,15 +502,29 @@ async function main() {
             console.error("Error handling API message:", error);
             res.status(500).send({ error: 'Failed to process message' });
         }
-    });
-    const PORT = process.env.PORT || 3000;
+    };
+    // Both endpoints for compatibility
+    app.post('/api/message', handleChatRequest);
+    app.post('/api/chat', handleChatRequest);
+    const PORT = process.env.PORT || 10000;
     app.listen(PORT, () => {
-        console.log(`✅ API Server is live on port ${PORT}`);
+        console.log(`✅ API Server is live on port ${PORT}. Health checks should pass.`);
+        // Now, initialize the agent in the background.
+        console.log('⏳ Starting agent initialization in the background...');
+        startAgent()
+            .then(initializedAgent => {
+            agent = initializedAgent;
+            console.log('✅ Agent is fully initialized and ready to handle requests.');
+        })
+            .catch(err => {
+            console.error('❌ FATAL: Agent initialization failed. The API will not be able to process messages.', err);
+        });
     });
 }
 main().catch((error) => {
     console.error("❌ Failed to start main application:", error);
     process.exit(1);
 });
-export { startAgent, handleMessage };
+// No longer needed
+// export { startAgent, handleMessage };
 //# sourceMappingURL=index.js.map

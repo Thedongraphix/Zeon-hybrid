@@ -168,14 +168,14 @@ async function initializeSharedComponents() {
           const { contractAddress, amountInEth, fundraiserName } = input;
           
           if (!isValidAddress(contractAddress)) {
-            return `❌ **Invalid Address**
+            return `❌ Invalid Address
 The contract address \`${contractAddress}\` is not valid. Please check and try again.`;
           }
           
           return await generateContributionQR(contractAddress, amountInEth, fundraiserName);
         } catch (e: any) {
           console.error("Error in generate_contribution_qr_code tool:", e);
-          return `❌ **QR Code Error**
+          return `❌ QR Code Error
 I encountered an error while generating the QR code: ${e.message}`;
         }
       },
@@ -198,7 +198,7 @@ I encountered an error while generating the QR code: ${e.message}`;
 
           if (!isValidAddress(beneficiaryAddress)) {
             console.log("❌ Invalid beneficiary address:", beneficiaryAddress);
-            return `❌ **Invalid Address**
+            return `❌ Invalid Address
 The beneficiary address \`${beneficiaryAddress}\` is not valid. Please check and try again.`;
           }
 
@@ -243,11 +243,11 @@ The beneficiary address \`${beneficiaryAddress}\` is not valid. Please check and
         } catch (e: any) {
           console.error("❌ Error deploying contract:", e);
           console.error("📊 Full error details:", e.stack);
-          return `❌ **Contract Deployment Failed**
+          return `❌ Contract Deployment Failed
 I was unable to deploy the contract. Please ensure your wallet has enough funds and the parameters are correct.
-*Error: ${e.message}*
+Error: ${e.message}
 
-*Debug info: Please check the server logs for more details.*`;
+Debug info: Please check the server logs for more details.`;
         }
       },
     });
@@ -264,7 +264,7 @@ I was unable to deploy the contract. Please ensure your wallet has enough funds 
           const { contractAddress } = input;
           
           if (!isValidAddress(contractAddress)) {
-            return `❌ **Invalid Address**
+            return `❌ Invalid Address
 The contract address \`${contractAddress}\` is not valid. Please check and try again.`;
           }
           
@@ -275,10 +275,10 @@ The contract address \`${contractAddress}\` is not valid. Please check and try a
           const contractScanLink = generateBaseScanLink(contractAddress, 'address');
           
           if (contributorAddresses.length === 0) {
-            return `🤔 **No Contributions Yet**
+            return `🤔 No Contributions Yet
 This fundraiser hasn't received any contributions. Be the first!
 
-🔍 **View Contract:** [${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}](${contractScanLink})`;
+🔍 View Contract: [${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}](${contractScanLink})`;
           }
 
           const contributorsWithEns = await Promise.all(
@@ -297,21 +297,21 @@ This fundraiser hasn't received any contributions. Be the first!
           const contributorList = contributorsWithEns.map((c: { address: string; ensName: string; }) => {
             const addressScanLink = generateBaseScanLink(c.address, 'address');
             const shortAddress = `${c.address.slice(0, 6)}...${c.address.slice(-4)}`;
-            return `- **${c.ensName === "N/A" ? shortAddress : c.ensName}**: [\`${shortAddress}\`](${addressScanLink})`;
+            return `- ${c.ensName === "N/A" ? shortAddress : c.ensName}: [\`${shortAddress}\`](${addressScanLink})`;
           }).join('\\n');
 
-          return `👥 **Contributors for Fundraiser**
+          return `👥 Contributors for Fundraiser
 
 Here are the amazing people who have contributed:
 ${contributorList}
 
 ---
-🔍 **View Contract:** [${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}](${contractScanLink})`;
+🔍 View Contract: [${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}](${contractScanLink})`;
         } catch (e: any) {
           console.error("Error getting contributors:", e);
-          return `❌ **Could Not Get Contributors**
+          return `❌ Could Not Get Contributors
 I was unable to fetch the contributor list for this fundraiser.
-*Error: ${e.message}*`;
+Error: ${e.message}`;
         }
       },
     });
@@ -328,7 +328,7 @@ I was unable to fetch the contributor list for this fundraiser.
           const { contractAddress } = input;
           
           if (!isValidAddress(contractAddress)) {
-            return `❌ **Invalid Address**
+            return `❌ Invalid Address
 The contract address \`${contractAddress}\` is not valid. Please check and try again.`;
           }
           
@@ -337,23 +337,23 @@ The contract address \`${contractAddress}\` is not valid. Please check and try a
           
           const isActive = await fundraiserContract.isFundraiserActive();
           const statusMessage = isActive 
-            ? "✅ **Active**: This fundraiser is currently accepting contributions." 
-            : "❌ **Ended**: This fundraiser has ended and can no longer accept contributions.";
+            ? "✅ Active: This fundraiser is currently accepting contributions." 
+            : "❌ Ended: This fundraiser has ended and can no longer accept contributions.";
 
           const contractScanLink = generateBaseScanLink(contractAddress, 'address');
           const shortContract = `${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}`;
 
-          return `📊 **Fundraiser Status**
+          return `📊 Fundraiser Status
 
 ${statusMessage}
 
 ---
-🔍 **View Contract:** [\`${shortContract}\`](${contractScanLink})`;
+🔍 View Contract: [\`${shortContract}\`](${contractScanLink})`;
         } catch (e: any) {
           console.error("Error checking fundraiser status:", e);
-          return `❌ **Could Not Check Status**
+          return `❌ Could Not Check Status
 I was unable to check the status of this fundraiser.
-*Error: ${e.message}*`;
+Error: ${e.message}`;
         }
       },
     });
@@ -370,7 +370,7 @@ I was unable to check the status of this fundraiser.
           const { address } = input;
           
           if (!isValidAddress(address)) {
-            return `❌ **Invalid Address**
+            return `❌ Invalid Address
 The wallet address \`${address}\` is not valid. Please check and try again.`;
           }
           
@@ -381,15 +381,15 @@ The wallet address \`${address}\` is not valid. Please check and try again.`;
           const addressScanLink = generateBaseScanLink(address, 'address');
           const shortAddress = `${address.slice(0, 6)}...${address.slice(-4)}`;
           
-          return `💰 **Wallet Balance**
+          return `💰 Wallet Balance
 
-- **Address:** [\`${shortAddress}\`](${addressScanLink})
-- **Balance:** **${balanceInEth} ETH** (on Base Sepolia)`;
+- Address: [\`${shortAddress}\`](${addressScanLink})
+- Balance: ${balanceInEth} ETH (on Base Sepolia)`;
         } catch (e: any) {
           console.error("Error checking wallet balance:", e);
-          return `❌ **Could Not Check Balance**
+          return `❌ Could Not Check Balance
 I was unable to check the balance of this wallet.
-*Error: ${e.message}*`;
+Error: ${e.message}`;
         }
       },
     });
