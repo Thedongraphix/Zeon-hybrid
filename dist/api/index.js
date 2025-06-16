@@ -48,3 +48,4 @@ app.listen(port, () => {
     console.log(`API server listening on port ${port}`);
     initialize();
 });
+//# sourceMappingURL=index.js.map

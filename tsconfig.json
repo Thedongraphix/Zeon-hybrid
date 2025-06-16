@@ -19,6 +19,7 @@
       "./types"
     ],
     "noEmit": false,
+    "sourceMap": true,
     "types": ["node"]
   },
   "ts-node": {

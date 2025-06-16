@@ -161,3 +161,4 @@ function toBytes(signature) {
     }
     throw new Error('Invalid signature format');
 }
+//# sourceMappingURL=client.js.map

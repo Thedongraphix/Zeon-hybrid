@@ -34,3 +34,4 @@ if (!fs.existsSync(distDir)) {
 }
 fs.writeFileSync(artifactPath, JSON.stringify(artifact, null, 2));
 console.log('✅ CrowdFund contract compiled and artifact saved to dist/CrowdFund.json');
+//# sourceMappingURL=compile-contract.js.map

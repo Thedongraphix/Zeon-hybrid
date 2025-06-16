@@ -157,7 +157,7 @@ async function initializeSharedComponents() {
         amountInEth: z.string(),
         fundraiserName: z.string(),
       }),
-      func: async (input) => {
+      func: async (input: { contractAddress: string; amountInEth: string; fundraiserName: string; }) => {
         try {
           const { contractAddress, amountInEth, fundraiserName } = input;
           
@@ -185,9 +185,9 @@ I encountered an error while generating the QR code: ${e.message}`;
         durationInSeconds: z.string(),
         fundraiserName: z.string().optional().default("My Fundraiser")
       }),
-      func: async (input) => {
+      func: async (input: { beneficiaryAddress: string; goalAmount: string; durationInSeconds: string; fundraiserName?: string; }) => {
         try {
-          const { beneficiaryAddress, goalAmount, durationInSeconds, fundraiserName } = input;
+          const { beneficiaryAddress, goalAmount, durationInSeconds, fundraiserName = "My Fundraiser" } = input;
 
           if (!isValidAddress(beneficiaryAddress)) {
             return `❌ **Invalid Address**
@@ -195,7 +195,7 @@ The beneficiary address \`${beneficiaryAddress}\` is not valid. Please check and
           }
 
           const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
-          const wallet = new ethers.Wallet(WALLET_KEY, provider);
+          const wallet = new ethers.Wallet(WALLET_KEY!, provider);
           const factory = new ethers.ContractFactory(contractAbi, contractBytecode, wallet);
 
           const goalInWei = ethers.parseEther(goalAmount);
@@ -235,7 +235,7 @@ I was unable to deploy the contract. Please ensure your wallet has enough funds 
       schema: z.object({
         contractAddress: z.string()
       }),
-      func: async (input) => {
+      func: async (input: { contractAddress: string; }) => {
         try {
           const { contractAddress } = input;
           
@@ -270,7 +270,7 @@ This fundraiser hasn't received any contributions. Be the first!
             })
           );
           
-          const contributorList = contributorsWithEns.map(c => {
+          const contributorList = contributorsWithEns.map((c: { address: string; ensName: string; }) => {
             const addressScanLink = generateBaseScanLink(c.address, 'address');
             const shortAddress = `${c.address.slice(0, 6)}...${c.address.slice(-4)}`;
             return `- **${c.ensName === "N/A" ? shortAddress : c.ensName}**: [\`${shortAddress}\`](${addressScanLink})`;
@@ -299,7 +299,7 @@ I was unable to fetch the contributor list for this fundraiser.
       schema: z.object({
         contractAddress: z.string()
       }),
-      func: async (input) => {
+      func: async (input: { contractAddress: string; }) => {
         try {
           const { contractAddress } = input;
           
@@ -341,7 +341,7 @@ I was unable to check the status of this fundraiser.
       schema: z.object({
         address: z.string()
       }),
-      func: async (input) => {
+      func: async (input: { address: string; }) => {
         try {
           const { address } = input;
           

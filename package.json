@@ -1,38 +1,36 @@
 {
   "name": "zeon-hybrid-api",
   "version": "1.0.0",
-  "description": "XMTP Agent Backend API",
+  "description": "Zeon AI Agent with XMTP",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
     "compile-contract": "tsx compile-contract.ts",
     "build": "yarn compile-contract && tsc",
-    "start": "node dist/api/index.js",
-    "dev": "tsx --watch api/index.ts"
+    "start": "node dist/index.js",
+    "dev": "tsx --watch index.ts"
   },
   "dependencies": {
     "@langchain/core": "^0.3.19",
     "@langchain/langgraph": "^0.2.21",
     "@langchain/openai": "^0.3.14",
     "@xmtp/node-sdk": "^2.1.0",
-    "body-parser": "^1.20.2",
     "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
     "ethers": "^6.12.0",
     "express": "^4.19.2",
     "qrcode": "^1.5.3",
-    "ts-node": "^10.9.2",
+    "solc": "^0.8.20",
+    "tsx": "*",
     "uint8arrays": "^5.1.0",
-    "viem": "^2.31.1",
+    "viem": "^2.31.2",
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@types/body-parser": "^1.19.5",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^24.0.1",
     "@types/qrcode": "^1.5.5",
-    "solc": "^0.8.20",
-    "tsx": "*",
     "typescript": "^5.4.5"
   },
   "engines": {
