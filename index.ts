@@ -29,6 +29,8 @@ import {
   formatTransactionResponse,
   formatDeployResponse
 } from "./utils/blockchain.js";
+import express from 'express';
+import cors from 'cors';
 
 const {
   WALLET_KEY,
@@ -542,12 +544,41 @@ async function startAgent() {
   }
 }
 
-// This part will now be handled by the API server
-// if (require.main === module) {
-//   startAgent().catch((error) => {
-//     console.error("Fatal error:", error);
-//     process.exit(1);
-//   });
-// }
+async function main() {
+  const app = express();
+  app.use(express.json());
+  app.use(cors());
+
+  app.get('/', (req, res) => {
+    res.send('✅ Zeon AI Agent is running!');
+  });
+  
+  const agent = await startAgent();
+
+  app.post('/api/message', async (req, res) => {
+    const { message, sessionId } = req.body;
+    if (!message || !sessionId) {
+      return res.status(400).send({ error: 'Message and sessionId are required' });
+    }
+    
+    try {
+      const response = await handleMessage(agent, message, sessionId);
+      res.send({ response });
+    } catch (error) {
+      console.error("Error handling API message:", error);
+      res.status(500).send({ error: 'Failed to process message' });
+    }
+  });
+
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`✅ API Server is live on port ${PORT}`);
+  });
+}
+
+main().catch((error) => {
+  console.error("❌ Failed to start main application:", error);
+  process.exit(1);
+});
 
 export { startAgent, handleMessage };
