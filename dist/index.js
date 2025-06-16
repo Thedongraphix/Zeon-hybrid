@@ -11,6 +11,8 @@ import { Client } from "@xmtp/node-sdk";
 import { ethers } from "ethers";
 import contractArtifact from "./dist/CrowdFund.json" with { type: "json" };
 import { generateBaseScanLink, isValidAddress, generateContributionQR, formatDeployResponse } from "./utils/blockchain.js";
+import express from 'express';
+import cors from 'cors';
 const { WALLET_KEY, ENCRYPTION_KEY, XMTP_ENV, NETWORK_ID, OPENROUTER_API_KEY, } = validateEnvironment([
     "WALLET_KEY",
     "ENCRYPTION_KEY",
@@ -368,6 +370,7 @@ async function handleMessage(messageContent, senderAddress, client, history = []
             const result = await initializeAgent(senderAddress, client);
             agent = result.agent;
             config = result.config;
+            agentStore[senderAddress] = agent;
             console.log(`✅ Agent initialized for ${senderAddress}`);
         }
         else {
@@ -380,15 +383,8 @@ async function handleMessage(messageContent, senderAddress, client, history = []
     }
     catch (error) {
         console.error("Error handling message:", error);
-        // Try to send error message back to user
-        try {
-            if (conversation) {
-                await conversation.send("❌ Sorry, I'm having technical difficulties. Please try again in a moment!");
-            }
-        }
-        catch (sendError) {
-            console.error("Failed to send error message:", sendError);
-        }
+        // The 'conversation' object is not available in this API context.
+        // The error will be returned to the API caller in the main() function.
         return "❌ Sorry, I'm having technical difficulties. Please try again in a moment!";
     }
 }
@@ -418,12 +414,36 @@ async function startAgent() {
         process.exit(1);
     }
 }
-// This part will now be handled by the API server
-// if (require.main === module) {
-//   startAgent().catch((error) => {
-//     console.error("Fatal error:", error);
-//     process.exit(1);
-//   });
-// }
+async function main() {
+    const app = express();
+    app.use(express.json());
+    app.use(cors());
+    app.get('/', (req, res) => {
+        res.send('✅ Zeon AI Agent is running!');
+    });
+    const agent = await startAgent();
+    app.post('/api/message', async (req, res) => {
+        const { message, sessionId } = req.body;
+        if (!message || !sessionId) {
+            return res.status(400).send({ error: 'Message and sessionId are required' });
+        }
+        try {
+            const response = await agent.handleMessage(message, sessionId);
+            res.send({ response });
+        }
+        catch (error) {
+            console.error("Error handling API message:", error);
+            res.status(500).send({ error: 'Failed to process message' });
+        }
+    });
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+        console.log(`✅ API Server is live on port ${PORT}`);
+    });
+}
+main().catch((error) => {
+    console.error("❌ Failed to start main application:", error);
+    process.exit(1);
+});
 export { startAgent, handleMessage };
 //# sourceMappingURL=index.js.map

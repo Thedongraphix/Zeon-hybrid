@@ -476,6 +476,7 @@ async function handleMessage(
       const result = await initializeAgent(senderAddress, client);
       agent = result.agent;
       config = result.config;
+      agentStore[senderAddress] = agent;
       console.log(`✅ Agent initialized for ${senderAddress}`);
     } else {
       config = { configurable: { thread_id: senderAddress } };
@@ -496,14 +497,8 @@ async function handleMessage(
   } catch (error) {
     console.error("Error handling message:", error);
     
-    // Try to send error message back to user
-    try {
-      if (conversation) {
-        await conversation.send("❌ Sorry, I'm having technical difficulties. Please try again in a moment!");
-      }
-    } catch (sendError) {
-      console.error("Failed to send error message:", sendError);
-    }
+    // The 'conversation' object is not available in this API context.
+    // The error will be returned to the API caller in the main() function.
     return "❌ Sorry, I'm having technical difficulties. Please try again in a moment!";
   }
 }
@@ -562,7 +557,7 @@ async function main() {
     }
     
     try {
-      const response = await handleMessage(agent, message, sessionId);
+      const response = await agent.handleMessage(message, sessionId);
       res.send({ response });
     } catch (error) {
       console.error("Error handling API message:", error);
