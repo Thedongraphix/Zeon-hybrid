@@ -555,6 +555,23 @@ async function main() {
       : '🟡 Zeon AI Agent is initializing... please wait.';
     res.send(status);
   });
+
+  // Dedicated health check endpoint with proper HTTP status codes
+  app.get('/health', (req, res) => {
+    if (agent) {
+      res.status(200).json({ 
+        status: 'healthy', 
+        agent: 'ready',
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.status(503).json({ 
+        status: 'initializing', 
+        agent: 'not_ready',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
   
   // Agent is now initialized in the background after server starts
   // const agent = await startAgent();
