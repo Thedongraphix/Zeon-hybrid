@@ -578,9 +578,29 @@ async function main() {
 
   // Chat endpoint handler function
   const handleChatRequest = async (req: any, res: any) => {
-    const { message, sessionId } = req.body;
-    if (!message || !sessionId) {
-      return res.status(400).send({ error: 'Message and sessionId are required' });
+    // Debug logging
+    console.log('📝 Request body:', JSON.stringify(req.body, null, 2));
+    console.log('📝 Content-Type:', req.headers['content-type']);
+    
+    // Extract fields with fallbacks for different frontend formats
+    let { message, sessionId } = req.body;
+    
+    // Handle different field name variations
+    message = message || req.body.text || req.body.content || req.body.query;
+    sessionId = sessionId || req.body.session_id || req.body.userId || req.body.user_id || req.body.id || 'default-session';
+    
+    // More detailed error message
+    if (!message) {
+      return res.status(400).send({ 
+        error: 'message field is required (also accepts: text, content, query)',
+        received: req.body
+      });
+    }
+    
+    // Auto-generate sessionId if still missing
+    if (!sessionId || sessionId === 'default-session') {
+      sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      console.log(`🔄 Auto-generated sessionId: ${sessionId}`);
     }
     
     // Return 503 if agent isn't ready yet
